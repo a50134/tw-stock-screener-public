@@ -1,0 +1,47 @@
+name: 除權息短打回測
+
+# 手動執行：回測「除權息前一兩天買、除權息當天賣」；每年平行抓資料（約 15～25 分鐘），最後合併統計寫在執行摘要
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        year: [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]
+    env:
+      PYTHONIOENCODING: utf-8
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python exdiv_bt.py fetch ${{ matrix.year }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exdiv-${{ matrix.year }}
+          path: exdiv_${{ matrix.year }}.json
+  report:
+    needs: fetch
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          path: parts
+      - run: python exdiv_bt.py report 2019 2026
+      - run: cat exdiv_result.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exdiv-result
+          path: exdiv_result.md

@@ -1,0 +1,36 @@
+name: 全市場行情（網頁查詢用）
+
+# 手動執行：補齊全市場（上市＋上櫃）約半年的日K與法人買賣超，存到 site-data 分支的 m/ 資料夾
+# 第一次約 30～40 分鐘；之後每晚的「每日選股報告」會順便更新最新幾天
+on:
+  workflow_dispatch:
+
+concurrency: site-data   # 和每日報告輪流寫 site-data 分支
+
+permissions:
+  contents: write   # 要把資料存回 site-data 分支
+
+jobs:
+  market:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 取上一份全市場快取
+        run: git fetch -q --depth 1 origin site-data && (git show FETCH_HEAD:market_hist.json > market_hist.json || { rm -f market_hist.json; echo "沒有快取，從頭補"; })
+      - run: python market.py
+      - name: 存回 site-data 分支（保留原本的 data.json）
+        run: |
+          URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          mkdir -p /tmp/sd && cd /tmp/sd && git init -q -b site-data
+          git fetch -q --depth 1 "$URL" site-data && git checkout -q FETCH_HEAD -- . || true
+          cp "$GITHUB_WORKSPACE/market_hist.json" . && rm -rf m && cp -r "$GITHUB_WORKSPACE/site_m" m
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "全市場行情 $(date +%F)"
+          git push -q -f "$URL" site-data

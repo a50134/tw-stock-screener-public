@@ -1,0 +1,46 @@
+name: 循環股平均高低點（每月更新）
+
+# 循環股「近 5 年平均低點／平均高點」：低點附近提醒買、高點附近提醒賣
+# 每月 1 日更新一次就夠（年度高低變化慢）；也可以手動執行
+on:
+  schedule:
+    - cron: '23 6 1 * *'   # 每月 1 日台灣時間 14:23
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bands:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}   # 讀寫私人專案（持股、買賣紀錄）
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: 取私人資料（持股、買賣紀錄放在私人專案，不公開）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 併入私人資料
+        run: '[ -f priv/sop_config.json ] && python private_sync.py pull priv || echo "沒有私人資料（還沒設定 PRIVATE_REPO_TOKEN），持股提醒略過"'
+      - run: pip install requests
+      - run: python cycle.py | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: 存回專案
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cycle_bands.json
+          git commit -m "更新循環股平均高低點" || exit 0
+          for i in 1 2 3; do git pull --rebase && git push && break || sleep 5; done

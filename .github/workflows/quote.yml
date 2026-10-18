@@ -1,0 +1,23 @@
+name: 查即時價
+
+# 手動執行：輸入股票代號（空白分隔），印出開盤、最新（收盤後就是收盤價）、昨收、漲跌
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: '股票代號（空白分隔）'
+        default: '2330'
+
+jobs:
+  quote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python quote.py ${{ inputs.ids }} | tee -a "$GITHUB_STEP_SUMMARY"

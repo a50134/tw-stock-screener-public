@@ -1,0 +1,9 @@
+{
+  "name": "tw-screener-daily",
+  "private": true,
+  "description": "條件選股室每日自動報告",
+  "dependencies": {
+    "docx": "^9.9.0",
+    "jsdom": "^24.1.3"
+  }
+}

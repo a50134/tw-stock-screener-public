@@ -1,0 +1,34 @@
+# 每次執行會重新產生的資料與報告
+data.json
+data_*.json
+macro.json
+broker.json
+broker_*.txt
+report_*.txt
+logs/
+# 套件與快取
+node_modules/
+__pycache__/
+# 金鑰一律不上傳
+.env
+*.env
+morning_report.txt
+# 網站打包輸出（build_site.py）
+site/
+market_scan.json
+morning_private.txt
+
+# 完整版報告（每晚產生、當 Discord 附檔）
+*.docx
+report_full.json
+discord_files.json
+總表_*.png
+line_extra*.json
+*.xlsx
+market_hist.json
+site_m/
+
+# 私人資料（持股、買賣紀錄）放在私人專案 a50134/tw-stock-screener，排程執行時才拿到 priv/
+priv/
+sell_plan.json
+lessons.json

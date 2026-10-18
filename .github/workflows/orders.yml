@@ -1,0 +1,50 @@
+name: 立即模擬下單
+
+# 手動執行：只抓模擬下單的股票，算出有沒有成交、損益，結果顯示在這次執行的摘要（不發送 Discord／LINE）
+on:
+  workflow_dispatch:
+
+jobs:
+  orders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}   # 讀寫私人專案（持股、買賣紀錄）
+    steps:
+      - uses: actions/checkout@v4
+      - name: 取私人資料（持股、買賣紀錄放在私人專案，不公開）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 併入私人資料
+        run: '[ -f priv/sop_config.json ] && python private_sync.py pull priv || echo "沒有私人資料（還沒設定 PRIVATE_REPO_TOKEN），持股提醒略過"'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: pip install requests
+      - run: npm ci
+      - name: 抓下單股票的資料並計算
+        run: |
+          ids=$(python - <<'EOF'
+          import json
+          c = json.load(open("sop_config.json", encoding="utf-8"))
+          o = c.get("orders") or {}
+          l = list((o.get("list") if isinstance(o, dict) else o) or []) + list((c.get("state") or {}).get("orders") or [])
+          print(" ".join(dict.fromkeys(str(x["id"]) for x in l)))
+          EOF
+          )
+          [ -n "$ids" ] || { echo "sop_config.json 沒有模擬下單"; exit 0; }
+          python fetch_finmind.py $ids --lite --days 120 --out data_orders.json
+          node daily_report.js data_orders.json sop_config.json
+          # 公開專案的執行紀錄任何人都看得到：結果只發 Discord，不印在紀錄裡
+          [ -s report_orders.txt ] && python send_report.py report_orders.txt --discord-only && echo "模擬下單結果已發到 Discord"

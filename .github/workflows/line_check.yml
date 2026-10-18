@@ -1,0 +1,23 @@
+name: 檢查 LINE 設定與額度
+
+# 手動執行：只查詢 LINE 官方帳號本月額度、已用則數、好友人數，不會發送任何訊息
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONIOENCODING: utf-8
+      TZ: Asia/Taipei
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+      LINE_BROADCAST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - run: python send_report.py --check | tee -a "$GITHUB_STEP_SUMMARY"
