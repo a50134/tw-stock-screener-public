@@ -72,7 +72,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for f in sop_plan.json sent_state.json; do [ -f "$f" ] && git add -f "$f" || true; done   # 持股相關的存回私人專案（下一步）
           git commit -m "更新開盤檢查名單" || exit 0
-          for i in 1 2 3; do git pull --rebase && git push && break || sleep 5; done
+          for i in 1 2 3; do git pull --rebase --autostash && git push && break || sleep 5; done
       - name: 存回私人資料（持股賣出計畫、復盤教訓）
         if: success() && !inputs.dry && hashFiles('priv/sop_config.json') != ''
         run: |
@@ -82,7 +82,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "更新持股賣出計畫" || exit 0
-          for i in 1 2 3; do git pull --rebase && git push && break || sleep 5; done
+          for i in 1 2 3; do git pull --rebase --autostash && git push && break || sleep 5; done
       - name: 保存網頁版要用的最新資料（site-data 分支，只留最新一份）
         if: success() && hashFiles('data.json') != ''
         run: |

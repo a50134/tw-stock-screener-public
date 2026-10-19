@@ -57,4 +57,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -f sent_state.json ]; then git add -f sent_state.json; fi
           git commit -m "記錄開盤檢查已發送" || exit 0
-          for i in 1 2 3; do git pull --rebase && git push && break || sleep 5; done
+          for i in 1 2 3; do git pull --rebase --autostash && git push && break || sleep 5; done
