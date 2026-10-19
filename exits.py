@@ -78,6 +78,9 @@ def holdings(cfg):
     for sid, v in ((oc.get("holds_stop") if isinstance(oc, dict) else None) or {}).items():  # 自訂停損 {代號: 價格}
         if str(sid) in H:
             H[str(sid)]["stop"] = float(v)
+    for sid, v in ((oc.get("holds_plan") if isinstance(oc, dict) else None) or {}).items():  # 你自己決定的賣法 {代號: {sell: [低, 高], stop: 價格}}
+        if str(sid) in H:
+            H[str(sid)]["plan"] = v
     return {k: v for k, v in H.items() if v["qty"] > 0}
 
 
@@ -104,6 +107,12 @@ def check(s, dates, h, prof=None):
     hi1y = max(s["h"][a:t + 1])
     t2 = tick(hi1y) if hi1y > t1 * 1.02 else tick(E + 6 * A0)
     why_t2 = "一年高點（套牢賣壓）" if hi1y > t1 * 1.02 else "買進價 + 6 倍日波動"
+    up = h.get("plan") or {}  # 你自己決定的賣法優先：賣價區間、停損（取代規則的保本／移動停利）
+    sz = [float(x) for x in (up.get("sell") or [])]
+    if up.get("stop"):
+        stop, why_stop = tick(float(up["stop"])), "你設定的停損"
+    if sz:
+        t1, t2, why_t2 = tick(sz[0]), tick(sz[-1]), "你設定的賣價"
 
     sell, trim, warn = [], [], []
     if c[t] <= stop:
@@ -111,20 +120,27 @@ def check(s, dates, h, prof=None):
     m20, m20p, m60 = ma(c, 20, t), ma(c, 20, t - 5), ma(c, 60, t)
     if m60 and c[t] < m60 and held >= 5 and c[t0] >= m60 * 0.98:
         sell.append("跌破季線 %s，中期趨勢轉弱" % px(m60))
-    if peak >= t1 and not h.get("sold"):
+    if sz:  # 你設定的賣價：先照你的計畫，其他規則只當提醒
+        if c[t] >= sz[-1]:
+            sell.append("到你設定的賣價 %s（收 %s），照計畫賣出" % (px(sz[-1]), px(c[t])))
+        elif c[t] >= sz[0]:
+            trim.append("到你設定的賣價區 %s～%s，可以先賣一半，%s 再賣剩下的" % (px(sz[0]), px(sz[-1]), px(sz[-1])))
+        warn += [x for x in sell if not x.startswith(("收盤", "到你"))]  # 跌破季線等改成提醒
+        sell[:] = [x for x in sell if x.startswith(("收盤", "到你"))]
+    elif peak >= t1 and not h.get("sold"):
         trim.append("已到第一目標 %s，建議先賣一半落袋，剩下的跌破 %s 再賣" % (px(t1), px(max(stop, tick(E)))))
-    if c[t] >= t2:
+    if c[t] >= t2 and not sz:
         trim.append("到第二目標 %s（%s），壓力大，可再賣一部分" % (px(t2), why_t2))
     import analysis
     z = analysis.cycle_zone(s, t)
-    if z and z["zone"] == "high":  # 循環股：低點買、高點賣
+    if z and z["zone"] == "high" and not sz:  # 循環股：低點買、高點賣（你有自己的賣價就照你的）
         if c[t] >= z["hi"]:
             sell.append("循環股已漲到近 %d 年平均高點 %s 以上，照「低點買、高點賣」賣出" % (z["n"], px(z["hi"])))
         else:
             trim.append("循環股接近近 %d 年平均高點 %s（還差 %s），分批賣出" % (z["n"], px(z["hi"]), fmt(pct(z["hi"], c[t]))))
     r = rsi(c, t)
     if m20 and (c[t] / m20 - 1 > 0.15 or r > 80):
-        trim.append("短線過熱（高於月線 %s、RSI %d），容易回檔" % (fmt(pct(c[t], m20)), r))
+        (warn if sz else trim).append("短線過熱（高於月線 %s、RSI %d），容易回檔" % (fmt(pct(c[t], m20)), r))
     if m20 and c[t] < m20 and m20 < m20p:
         warn.append("跌破月線 %s 且月線下彎，短線轉弱" % px(m20))
     fi, it = s.get("fi") or [0] * len(c), s.get("it") or [0] * len(c)
