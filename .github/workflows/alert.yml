@@ -1,0 +1,52 @@
+name: 持股即時提醒
+
+# 開盤前與盤中每 30 分鐘：持股到你設定的價位、或公司／原料有新聞，就發到 Discord（只發 Discord，不發 LINE）
+# 公開專案的執行紀錄任何人都看得到：程式只印「幾則提醒」，不印股票代號和新聞
+on:
+  schedule:
+    - cron: '17 23 * * 0-4'      # 台灣時間週一～五 07:17（開盤前，看隔夜新聞）
+    - cron: '7,37 1-5 * * 1-5'   # 台灣時間 09:07～13:37 每 30 分鐘
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: holding-alert
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 取私人資料（持股放在私人專案）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - name: 檢查持股價位與新聞
+        run: |
+          [ -f priv/sop_config.json ] || { echo "沒有私人資料（PRIVATE_REPO_TOKEN），略過"; exit 0; }
+          python private_sync.py pull priv > /dev/null
+          python alert.py
+      - name: 記錄已提醒過的（存回私人專案，同一則不重複發）
+        if: hashFiles('alert_state.json') != ''
+        run: |
+          cp alert_state.json priv/
+          cd priv
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add alert_state.json
+          git commit -q -m "更新持股提醒紀錄" || exit 0
+          for i in 1 2 3; do git pull -q --rebase --autostash && git push -q && break || sleep 5; done

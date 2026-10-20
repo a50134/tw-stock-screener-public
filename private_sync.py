@@ -11,7 +11,7 @@ import shutil
 import sys
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["sell_plan.json", "lessons.json"]  # 每晚會更新、要存回私人專案的檔案
+FILES = ["sell_plan.json", "lessons.json", "alert_state.json"]  # 每晚會更新、要存回私人專案的檔案
 
 
 def pull(priv):

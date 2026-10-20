@@ -113,6 +113,9 @@ def check(s, dates, h, prof=None):
         stop, why_stop = tick(float(up["stop"])), "你設定的停損"
     if sz:
         t1, t2, why_t2 = tick(sz[0]), tick(sz[-1]), "你設定的賣價"
+    hf = float(up["half"]) if up.get("half") else None  # 你設定的「先賣一半」價位
+    if hf:
+        t1 = tick(hf)
 
     sell, trim, warn = [], [], []
     if c[t] <= stop:
@@ -120,14 +123,16 @@ def check(s, dates, h, prof=None):
     m20, m20p, m60 = ma(c, 20, t), ma(c, 20, t - 5), ma(c, 60, t)
     if m60 and c[t] < m60 and held >= 5 and c[t0] >= m60 * 0.98:
         sell.append("跌破季線 %s，中期趨勢轉弱" % px(m60))
+    if hf and not h.get("sold") and c[t] >= hf and not (sz and c[t] >= sz[0]):
+        trim.append("漲到你設定的 %s（收 %s），照計畫先賣一半%s" % (px(hf), px(c[t]), "，剩下的等 %s～%s 再賣" % (px(sz[0]), px(sz[-1])) if sz else ""))
     if sz:  # 你設定的賣價：先照你的計畫，其他規則只當提醒
         if c[t] >= sz[-1]:
             sell.append("到你設定的賣價 %s（收 %s），照計畫賣出" % (px(sz[-1]), px(c[t])))
         elif c[t] >= sz[0]:
-            trim.append("到你設定的賣價區 %s～%s，可以先賣一半，%s 再賣剩下的" % (px(sz[0]), px(sz[-1]), px(sz[-1])))
+            trim.append(("到你設定的賣價區 %s～%s，剩下的可以開始賣，%s 全部賣完" if hf else "到你設定的賣價區 %s～%s，可以先賣一半，%s 再賣剩下的") % (px(sz[0]), px(sz[-1]), px(sz[-1])))
         warn += [x for x in sell if not x.startswith(("收盤", "到你"))]  # 跌破季線等改成提醒
         sell[:] = [x for x in sell if x.startswith(("收盤", "到你"))]
-    elif peak >= t1 and not h.get("sold"):
+    elif peak >= t1 and not h.get("sold") and not hf:
         trim.append("已到第一目標 %s，建議先賣一半落袋，剩下的跌破 %s 再賣" % (px(t1), px(max(stop, tick(E)))))
     if c[t] >= t2 and not sz:
         trim.append("到第二目標 %s（%s），壓力大，可再賣一部分" % (px(t2), why_t2))
@@ -174,7 +179,7 @@ def check(s, dates, h, prof=None):
         tips.append("循環股位置：" + analysis.cycle_text(z))
     if cyc.startswith("循環") and "穩定" not in cyc.split("：")[0]:
         tips.append(cyc + "。循環股要看景氣與報價：報價開始轉跌、或股價已在一年高點附近時，就算沒到停損也要先減碼")
-    lv_ = dict(stop=stop, why_stop=why_stop, t1=t1, t2=t2, why_t2=why_t2, peak=peak, held=held, gain=gain, close=c[t])
+    lv_ = dict(sz=sz, hf=hf, stop=stop, why_stop=why_stop, t1=t1, t2=t2, why_t2=why_t2, peak=peak, held=held, gain=gain, close=c[t])
     return lv, act, sell + trim + warn, tips, lv_
 
 
@@ -205,16 +210,19 @@ def build(data, cfg, profiles=None):
             cond = ["收盤跌破 %s 全賣（%s，%s）" % (px(P["stop"]), P["why_stop"], fmt(pct(P["stop"], P["close"])))]
             if h.get("sold"):
                 cond.append("已賣過一部分，剩下的照停損／移動停利處理")
+            elif P["hf"] and P["close"] < P["t1"]:
+                cond.append("漲到 %s 先賣一半（你設定的，%s）" % (px(P["t1"]), fmt(pct(P["t1"], P["close"]))))
             elif P["peak"] < P["t1"]:
                 cond.append("漲到 %s 先賣一半（第一目標，%s）" % (px(P["t1"]), fmt(pct(P["t1"], P["close"]))))
             if P["t2"] > P["close"]:
-                cond.append("漲到 %s 再賣（%s，%s）" % (px(P["t2"]), P["why_t2"], fmt(pct(P["t2"], P["close"]))))
+                cond.append(("漲到 %s～%s 賣完（你設定的賣價，%s）" % (px(P["sz"][0]), px(P["sz"][-1]), fmt(pct(P["sz"][0], P["close"])))) if P["hf"] and len(P["sz"]) > 1 else
+                            "漲到 %s 再賣（%s，%s）" % (px(P["t2"]), P["why_t2"], fmt(pct(P["t2"], P["close"]))))
             L.append("・賣出條件：" + "｜".join(cond))
         for x in tips:
             L.append("・" + x)
         blocks.append((lv, L))
         plan.append({"id": sid, "name": s["name"], "qty": h["qty"], "cost": round(h["cost"], 2), "stop": P["stop"],
-                     "t1": P["t1"] if not h.get("sold") and P["peak"] < P["t1"] else None, "t2": P["t2"],
+                     "t1": P["t1"] if not h.get("sold") and (P["peak"] < P["t1"] or (P["hf"] and P["close"] < P["t1"])) else None, "t2": P["t2"],
                      "close": P["close"], "level": lv, "action": act})
     blocks.sort(key=lambda b: -b[0])
     cnt = [sum(b[0] == k for b in blocks) for k in (3, 2, 1, 0)]
