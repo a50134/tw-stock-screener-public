@@ -1,0 +1,42 @@
+name: 查個股
+
+# 手動執行：輸入股票代號或名稱（空白或逗號分隔，例如「1605 台積電」），馬上用 FinMind 抓資料分析，結果發到 Discord
+# 手機：GitHub App → 這個專案 → Actions → 查個股 → Run workflow
+# 注意：輸入的代號在公開的執行紀錄看得到；持股提醒只發 Discord，不會出現在紀錄裡
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: '股票代號或名稱（空白分隔）'
+        required: true
+        default: '1605'
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      IDS: ${{ inputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 取私人資料（有持股的話多一段賣出提醒）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - name: 抓資料並分析
+        run: |
+          [ -f priv/sop_config.json ] && python private_sync.py pull priv > /dev/null || true
+          python lookup.py "$IDS"
+          cat lookup.txt >> "$GITHUB_STEP_SUMMARY"

@@ -274,8 +274,8 @@ def main():
     info = {d["stock_id"]: d for d in get("TaiwanStockInfo")}
     raw = {}
     all_dates = set()
-    for sid in ids:
-        print("抓取", sid)
+    for k, sid in enumerate(ids, 1):
+        print("抓取 %d/%d" % (k, len(ids)), flush=True)  # 不印代號：公開專案的執行紀錄任何人都看得到（持股混在清單裡）
         etf = sid.startswith("00")  # ETF 沒有營收、財報、本益比，少抓 3 次省額度
         old = cache.get(sid) or {}
         old_rev = old.get("rev") or []
