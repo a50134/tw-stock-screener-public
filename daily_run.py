@@ -150,6 +150,15 @@ def main():
             run([py, "fetch_finmind.py", "--macro", "--news-days", str(max(3, gap + 1))], timeout=600)
         except Exception as e:
             log("國際新聞抓取失敗，略過：", e)
+        try:  # 集保大戶持股（每週，集保開放資料）：存進歷史、填進 data.json；失敗不影響報告
+            import tdcc
+            try:
+                tdcc.update()
+            except Exception as e:
+                log("集保最新一週抓取失敗，用已有的歷史：", e)
+            tdcc.merge(os.path.join(DIR, "data.json"))
+        except Exception as e:
+            log("集保大戶資料失敗，略過：", e)
         run(["node", "daily_report.js", "data.json", "sop_config.json"], timeout=900)
         try:  # 大盤偏弱（國際風險高或 0050 跌破季線）時，只因量價突破入選的改成先觀望
             import analysis

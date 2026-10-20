@@ -1,0 +1,41 @@
+name: 查個股
+
+# 手動執行：輸入股票代號或名稱（例如「1605 台積電」），馬上用 FinMind 抓資料分析，結果只發到 Discord
+# 手機：GitHub App → tw-stock-screener-public → Actions → 查個股 → Run workflow
+# 這裡是公開專案：輸入內容不放進環境變數、不印、不寫執行摘要，執行紀錄看不出查了哪一檔
+# （私人專案的 GitHub 額度重置後，改回私人專案的「查個股（私人）」）
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: '股票代號或名稱（空白分隔）'
+        required: true
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 取私人資料（有持股的話多一段賣出提醒）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - name: 抓資料並分析（結果只發 Discord）
+        run: |
+          git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:tdcc_hist.json > tdcc_hist.json 2>/dev/null || rm -f tdcc_hist.json
+          [ -f priv/sop_config.json ] && python private_sync.py pull priv > /dev/null || true
+          python lookup.py --event

@@ -63,6 +63,7 @@ jobs:
       - name: 全市場行情（網頁查詢任何一檔用、判斷大盤強弱；失敗不影響報告）
         run: |
           git fetch -q --depth 1 origin site-data && (git show FETCH_HEAD:market_hist.json > market_hist.json || { rm -f market_hist.json; echo "沒有全市場快取"; })
+          git show FETCH_HEAD:tdcc_hist.json > tdcc_hist.json 2>/dev/null || { rm -f tdcc_hist.json; echo "還沒有集保大戶歷史，今晚開始累積"; }
           python market.py --days 10 || echo "全市場行情更新失敗，沿用上一份"
       - run: python daily_run.py ${{ inputs.force && '--force' || '' }} ${{ inputs.dry && '--dry-run' || '' }}
       - name: 保存隔天早上開盤檢查的名單
@@ -96,6 +97,7 @@ jobs:
           print("網頁資料：", d.get("asOf"), len(d["stocks"]), "檔")
           EOF
           [ -f market_hist.json ] && cp market_hist.json /tmp/site-data/ || true
+          [ -f tdcc_hist.json ] && cp tdcc_hist.json /tmp/site-data/ || true   # 集保大戶每週歷史（開放資料只有最新一週，要自己存）
           git fetch -q --depth 1 origin site-data || true   # 重抓一次（前面存檔步驟的 git pull 會蓋掉 FETCH_HEAD）
           # 歷史圖卡：沿用上一份，加上今晚的圖，只留最近約一個月
           (git archive FETCH_HEAD cards | tar -x -C /tmp/site-data) 2>/dev/null || true
