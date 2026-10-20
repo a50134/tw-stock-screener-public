@@ -125,6 +125,7 @@ def main():
     tail = "依 FinMind 公開資料與固定規則整理，不是投資建議。"
     text_pub = "\n\n".join([head] + pub + [tail])
     open(os.path.join(DIR, "lookup.txt"), "w", encoding="utf-8").write(text_pub)
+    open(os.path.join(DIR, "lookup_full.txt"), "w", encoding="utf-8").write("\n\n".join([head] + priv + [tail]))  # 完整版（存回私人專案給 Claude 讀）
     if DRY:
         print("\n\n".join([head] + priv + [tail]))
         return
