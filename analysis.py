@@ -58,7 +58,8 @@ def raw_news(prof):
     qs = [q for q, kw in RAW.items() if any(k in text for k in kw)]
     out = []
     for m in _ld("macro.json", {}).get("macro") or []:
-        if m.get("q") in qs and any(w in m.get("title", "") for w in MOVE):
+        kw = RAW.get(m.get("q"), [])
+        if m.get("q") in qs and any(w in m.get("title", "") for w in MOVE) and any(k in m.get("title", "") for k in kw):  # 標題要真的提到這個原料
             out.append(m["title"].rsplit(" - ", 1)[0])
         if len(out) >= 2:
             break
@@ -343,6 +344,8 @@ def block(s, f, prof, row=None, hold=None):
     if m5 and m20 and m60:
         tech.append("均線多頭排列（5日>月線>季線）" if m5 > m20 > m60 else "均線空頭排列（5日<月線<季線）" if m5 < m20 < m60 else
                     "站上月線" if f["close"] > m20 else "在月線之下")
+        if f["close"] < m60:
+            tech.append("收盤 %s 已跌破季線 %s" % (px(f["close"]), px(m60)))
         sup = [("月線", m20), ("季線", m60)]
         sup = [(n, v) for n, v in sup if v < f["close"]]
         if sup:
