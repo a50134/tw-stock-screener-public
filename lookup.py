@@ -65,7 +65,14 @@ def add_band(sid):
 def news_lines(s, n=5):
     import alert
     out = []
-    for x in (s.get("news") or [])[:n]:
+    seen = set()
+    for x in s.get("news") or []:
+        k = x["title"].rsplit(" - ", 1)[0]
+        if k in seen or "個股概覽" in k:  # 重複的、沒內容的股價頁不算新聞
+            continue
+        seen.add(k)
+        if len(out) >= n:
+            break
         g = alert.tone(x["title"], alert.UP + alert.GOOD, alert.DOWN + alert.BAD)
         out.append("　%s %s %s" % (x["d"][5:].replace("-", "/"), "🟢利多" if g > 0 else "🔴利空" if g < 0 else "⚪", x["title"].rsplit(" - ", 1)[0]))
     return out
