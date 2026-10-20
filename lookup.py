@@ -110,6 +110,14 @@ def main():
     prof = analysis._ld("stock_profiles.json", {})
     cfg = json.load(open(os.path.join(DIR, "sop_config.json"), encoding="utf-8")) if os.path.exists(os.path.join(DIR, "sop_config.json")) else {}
     H = exits.holdings(cfg)
+    live = {}
+    try:  # 證交所即時報價（盤中約 5 秒更新；收盤後就是今天收盤價）
+        import datetime as dt
+        from morning_check import quotes
+        live = quotes([x["id"] for x in data["stocks"]])
+        live_t = dt.datetime.now().strftime("%m/%d %H:%M")
+    except Exception as e:
+        print("即時報價抓取失敗，只用收盤資料：", type(e).__name__)
     pub, priv = [], []
     for s in data["stocks"]:
         t = len(s["c"]) - 1
@@ -119,6 +127,12 @@ def main():
             continue
         add_band(s["id"])
         L = [analysis.block(s, analysis.facts(s, t), prof.get(s["id"]))]
+        o, z, y = live.get(s["id"], (None, None, None))
+        if z or o:
+            p_ = z or o
+            L.append("・即時價（%s 證交所）：%s%s，開盤 %s%s" % (
+                live_t, exits.px(p_), "（%+.2f%%）" % ((p_ / y - 1) * 100) if y else "", exits.px(o) if o else "—",
+                "" if z else "（收盤集合競價中，最新價用開盤價）"))
         nl = news_lines(s)
         if nl:
             L.append("・最近新聞：\n" + "\n".join(nl))
