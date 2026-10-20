@@ -72,13 +72,16 @@ def news_lines(s, n=5):
 
 
 def main():
-    words = [w for a in sys.argv[1:] if not a.startswith("--") for w in re.split(r"[\s,，、]+", a) if w]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--event" in sys.argv:  # GitHub 手動執行：從事件檔讀輸入，不經過環境變數（執行紀錄不會顯示查了什麼）
+        args = [str((json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8")).get("inputs") or {}).get("ids", ""))]
+    words = [w for a in args for w in re.split(r"[\s,，、]+", a) if w]
     if not words:
         print("請輸入股票代號或名稱，例如：python lookup.py 1605 台積電")
         return
     ids, miss = resolve(words)
     if miss:
-        print("找不到：", "、".join(miss))
+        print("有 %d 個找不到（名稱打錯或已下市）" % len(miss))  # 不印查了什麼（公開執行紀錄）
     if not ids:
         sys.exit(1)
     # 抓一年多的日K、法人、融資、營收、財報、新聞，以及國際／原料新聞
@@ -86,6 +89,13 @@ def main():
     if r.returncode or not os.path.exists(os.path.join(DIR, "lookup.json")):
         print("FinMind 資料抓取失敗")
         sys.exit(1)
+    try:  # 集保大戶持股：用每晚存的歷史（沒有就現在抓最新一週）
+        import tdcc
+        if not os.path.exists(tdcc.HIST):
+            tdcc.update()
+        tdcc.merge(os.path.join(DIR, "lookup.json"))
+    except Exception as e:
+        print("集保大戶資料失敗，略過：", type(e).__name__)
     data = json.load(open(os.path.join(DIR, "lookup.json"), encoding="utf-8"))
     json.dump({"macro": data.get("macro") or []}, open(os.path.join(DIR, "macro.json"), "w", encoding="utf-8"), ensure_ascii=False)
     import analysis

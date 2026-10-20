@@ -95,7 +95,7 @@ def get(dataset, sid="", start=""):
         except requests.RequestException as e:
             print("  ! 連線錯誤：", e, file=sys.stderr)
         time.sleep(3 * (attempt + 1))
-    print("  ! 無法取得", dataset, sid, file=sys.stderr)
+    print("  ! 無法取得", dataset, file=sys.stderr)  # 不印代號（公開執行紀錄）
     return []
 
 
@@ -227,7 +227,7 @@ def holders(rows):
     return [{"d": k, "big": round(v["big"], 2), "ret": round(v["ret"], 2)} for k, v in sorted(by.items())]
 
 
-HS_OK = [True]
+HS_OK = [False]  # FinMind 集保持股分級要付費等級才有；改用 tdcc.py（集保開放資料，免費）
 
 
 def main():

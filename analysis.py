@@ -156,6 +156,11 @@ def facts(s, t):
         why.append("本益比 %.1f 倍，偏便宜" % f["pe"])
     if f["yield"] and f["yield"] >= 5:
         why.append("殖利率 %.1f%%" % f["yield"])
+    # 集保大戶（每週）：千張大戶持股 %、50 張以下散戶持股 %
+    hw = [x for x in (s.get("hw") or []) if x.get("big") is not None]
+    f["hw"] = hw[-5:]
+    if len(hw) >= 3 and hw[-1]["big"] > hw[-2]["big"] > hw[-3]["big"]:
+        why.append("千張大戶持股連 2 週增加（%.1f%%）" % hw[-1]["big"])
     f["why"] = why
     f["m60"] = m60
     # 營收細節：最新月營收（億）、月增、年增、今年累計年增、創近幾個月新高
@@ -318,6 +323,20 @@ def block(s, f, prof, row=None, hold=None):
                                          "（散戶追進，留意）" if f["mg5"] > 0 and f["fi5"] + f["it5"] < 0 else ""))
     if f["ssr"] and f["ssr"] >= 10:
         ch.append("券資比 %.0f%%" % f["ssr"])
+    hw = f.get("hw") or []
+    if hw:
+        x = hw[-1]
+        t = "千張大戶持股 %.1f%%" % x["big"]
+        if len(hw) >= 2:
+            db, dr = x["big"] - hw[-2]["big"], x["ret"] - hw[-2]["ret"]
+            t += "（比上週 %+.2f 個百分點）、散戶 %.1f%%（%+.2f）" % (db, x["ret"], dr)
+            if db > 0 and dr < 0:
+                t += "，大戶買、散戶賣，籌碼集中"
+            elif db < 0 and dr > 0:
+                t += "，大戶賣、散戶接，籌碼變亂"
+        else:
+            t += "、散戶 %.1f%%（%s 集保）" % (x["ret"], x["d"][5:].replace("-", "/"))
+        ch.append(t)
     L.append("・籌碼：" + "；".join(ch))
     m5, m20, m60 = f["ma"]
     tech = []

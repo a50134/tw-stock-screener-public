@@ -154,6 +154,9 @@ def check(s, dates, h, prof=None):
         ns += 1
     if ns >= 4:
         warn.append("外資＋投信連續 %d 天賣超（%s 張）" % (ns, "{:,}".format(round(sum(fi[t - ns + 1:t + 1]) + sum(it[t - ns + 1:t + 1])))))
+    hw = [x for x in (s.get("hw") or []) if x.get("big") is not None]
+    if len(hw) >= 3 and hw[-1]["big"] < hw[-2]["big"] < hw[-3]["big"]:
+        warn.append("千張大戶持股連 2 週減少（%.1f%% → %.1f%%），大戶在出貨" % (hw[-3]["big"], hw[-1]["big"]))
     rv = {x["m"]: x["v"] for x in (s.get("rev") or [])}
     yo = []
     for m in sorted(rv)[-2:]:
