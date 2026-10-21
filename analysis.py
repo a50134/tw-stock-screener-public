@@ -98,6 +98,49 @@ def ma(c, n, t):
     return sum(c[t - n + 1:t + 1]) / n if t >= n - 1 else float("nan")
 
 
+def macd(c, t=None):
+    """MACD（12,26,9），算法和網頁版一樣：回傳 {dif, sig, cross: 幾天前交叉（正＝黃金、負＝死亡、None＝近 10 天沒交叉）}"""
+    t = len(c) - 1 if t is None else t
+    if t < 35:
+        return None
+    def ema(a, n):
+        k, o, e = 2 / (n + 1), [], a[0]
+        for i, x in enumerate(a):
+            e = x * k + e * (1 - k) if i else a[0]
+            o.append(e)
+        return o
+    a = c[:t + 1]
+    e12, e26 = ema(a, 12), ema(a, 26)
+    dif = [x - y for x, y in zip(e12, e26)]
+    sig = ema(dif, 9)
+    cross = None
+    for j in range(t, max(t - 10, 1), -1):
+        if dif[j] > sig[j] and dif[j - 1] <= sig[j - 1]:
+            cross = t - j + 1
+            break
+        if dif[j] < sig[j] and dif[j - 1] >= sig[j - 1]:
+            cross = -(t - j + 1)
+            break
+    return {"dif": dif[t], "sig": sig[t], "cross": cross, "hist": dif[t] - sig[t], "hist_prev": dif[t - 1] - sig[t - 1]}
+
+
+def macd_text(m):
+    """MACD 狀態一句話"""
+    if not m:
+        return ""
+    zero = "零軸之上" if m["dif"] > 0 and m["sig"] > 0 else "零軸之下" if m["dif"] < 0 and m["sig"] < 0 else "在零軸附近"
+    if m["cross"]:
+        d = abs(m["cross"]) - 1
+        when = "今天" if d == 0 else "%d 天前" % d
+        if m["cross"] > 0:
+            return "MACD %s黃金交叉、%s（%s）" % (when, zero, "偏多" if zero == "零軸之上" else "低檔轉強訊號")
+        return "MACD %s死亡交叉、%s（%s）" % (when, zero, "高檔轉弱，留意" if zero == "零軸之上" else "偏弱")
+    side = "DIF 在訊號線之上" if m["hist"] > 0 else "DIF 在訊號線之下"
+    trend = "，紅柱變長" if m["hist"] > 0 and m["hist"] > m["hist_prev"] else "，紅柱縮短" if m["hist"] > 0 else \
+        "，綠柱縮短（跌勢減緩）" if m["hist"] > m["hist_prev"] else "，綠柱變長"
+    return "MACD %s、%s%s" % (side, zero, trend)
+
+
 def facts(s, t):
     """從當晚資料算出數字與「可能上漲的理由」"""
     c, h, l, v = s["c"], s["h"], s["l"], s["v"]
@@ -164,6 +207,7 @@ def facts(s, t):
         why.append("千張大戶持股連 2 週增加（%.1f%%）" % hw[-1]["big"])
     f["why"] = why
     f["m60"] = m60
+    f["macd"] = macd(c, t)
     # 營收細節：最新月營收（億）、月增、年增、今年累計年增、創近幾個月新高
     ms = sorted(rv)
     if ms and rv[ms[-1]] > 0:
@@ -346,6 +390,8 @@ def block(s, f, prof, row=None, hold=None):
                     "站上月線" if f["close"] > m20 else "在月線之下")
         if f["close"] < m60:
             tech.append("收盤 %s 已跌破季線 %s" % (px(f["close"]), px(m60)))
+        if f.get("macd"):
+            tech.append(macd_text(f["macd"]))
         sup = [("月線", m20), ("季線", m60)]
         sup = [(n, v) for n, v in sup if v < f["close"]]
         if sup:
