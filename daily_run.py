@@ -47,8 +47,35 @@ def run(cmd, timeout):
         raise RuntimeError("%s 失敗（代碼 %s）" % (cmd[1] if len(cmd) > 1 else cmd[0], p.returncode))
 
 
+def extra_holidays():
+    """臨時休市（颱風假等，證交所假日表沒有）：
+    1. sop_config.json 的 extra_holidays（手動加，例如 ["2026-10-23"]）
+    2. 全市場行情 market_hist.json 裡，平日卻沒有成交資料的日子（自動偵測）"""
+    out = set()
+    try:
+        cfg = json.load(open(os.path.join(DIR, "sop_config.json"), encoding="utf-8"))
+        out |= {dt.date.fromisoformat(x) for x in cfg.get("extra_holidays") or []}
+    except Exception:
+        pass
+    try:
+        days = sorted(json.load(open(os.path.join(DIR, "market_hist.json"), encoding="utf-8")).get("hist") or {})
+        if len(days) >= 2:
+            have, d, end = set(days), dt.date.fromisoformat(days[0]), dt.date.fromisoformat(days[-1])
+            while d < end:
+                if d.weekday() < 5 and d.isoformat() not in have:
+                    out.add(d)
+                d += dt.timedelta(days=1)
+    except Exception:
+        pass
+    return out
+
+
 def twse_holidays():
-    """證交所休市日（set of date）；抓不到回傳空集合（只用週末判斷）"""
+    """證交所休市日（set of date），再加上臨時休市（extra_holidays）；假日表抓不到就只用週末＋臨時休市判斷"""
+    return _twse_holidays() | extra_holidays()
+
+
+def _twse_holidays():
     try:
         req = urllib.request.Request("https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule", headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=60, context=ssl.create_default_context()) as r:

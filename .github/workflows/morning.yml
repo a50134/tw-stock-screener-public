@@ -49,6 +49,8 @@ jobs:
       - name: 測試開盤前觀察的資料來源（只在手動測試時）
         if: inputs.test
         run: python premarket.py --debug || true
+      - name: 取全市場行情（偵測颱風假等臨時休市）
+        run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:market_hist.json > market_hist.json || rm -f market_hist.json
       - run: python morning_check.py ${{ inputs.test && '--now --dry-run --force' || '' }}
       - name: 記錄今天已發送
         if: success()
