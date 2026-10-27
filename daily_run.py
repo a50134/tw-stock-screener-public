@@ -230,6 +230,14 @@ def main():
                 log("持股賣出提醒已加入報告（只給自己）")
         except Exception as e:
             log("持股賣出提醒失敗，略過：", e)
+        try:  # 持股相關新聞（公司＋原料，例如華新看銅、鎳、不銹鋼）整理，附利多／利空（只給自己）
+            import alert
+            ntext = alert.digest(cfg, ld("stock_profiles.json", {}), ld("sell_plan.json", {}))
+            if ntext:
+                add(["report_discord.txt", PRIV], ntext)
+                log("持股相關新聞已加入報告（只給自己）")
+        except Exception as e:
+            log("持股相關新聞失敗，略過：", type(e).__name__)
         try:  # 模擬下單（daily_report.js 產生）：有沒有成交、今天賺多少（只給自己）
             op = os.path.join(DIR, "report_orders.txt")
             otext = open(op, encoding="utf-8").read().strip() if os.path.exists(op) else ""

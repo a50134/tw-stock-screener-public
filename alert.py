@@ -134,6 +134,54 @@ def price_alerts(sid, name, h, plan, q, seen):
     return [(k, x) for k, x in out if "%s:%s" % (sid, k) not in seen]
 
 
+def digest(cfg, prof, sell_plan=None, hours=30, per=8):
+    """每晚報告用：持股的公司新聞＋原料新聞整理（近 hours 小時），每則附利多／利空與建議；沒有持股回傳空字串"""
+    H = exits.holdings(cfg)
+    if not H:
+        return ""
+    sp = {x["id"]: x for x in (sell_plan or {}).get("holds", [])}
+    hp = (cfg.get("orders") or {}).get("holds_plan") or {}
+    out = []
+    for sid, h in H.items():
+        p, name = prof.get(sid) or {}, (sp.get(sid) or {}).get("name") or sid
+        plan = dict(hp.get(sid) or {})
+        plan.setdefault("stop", (sp.get(sid) or {}).get("stop"))
+        q = {"z": (sp.get(sid) or {}).get("close")}
+        short = name.replace("-KY", "")
+        seen, comp, raw = set(), [], []
+        for it in rss("%s %s" % (short, sid), hours) + rss(short + " 股價", hours):
+            if it["title"] not in seen:
+                seen.add(it["title"])
+                comp.append((it, None))
+        for term, sign in raw_terms(p).items():
+            for it in rss(term, hours)[:6]:
+                if it["title"] not in seen and tone(it["title"]) != 0:
+                    seen.add(it["title"])
+                    raw.append((it, sign, term.split()[0]))
+        if not comp and not raw:
+            continue
+        L = ["【%s %s】" % (sid, name)]
+        if comp:
+            L.append("・公司新聞：")
+            for it, sign in comp[:per]:
+                tag, tip = judge(it, sign, h, q, plan)
+                L.append("　%s %s %s（%s）" % (it["d"], tag.split("（")[0], it["title"], it["src"]))
+        if raw:
+            L.append("・原料／報價新聞：")
+            for it, sign, term in raw[:per]:
+                tag, tip = judge(it, sign, h, q, plan)
+                L.append("　%s［%s］%s %s（%s）" % (it["d"], term, tag.split("（")[0], it["title"], it["src"]))
+        ups = sum(1 for it, sg in comp if tone(it["title"], UP + GOOD, DOWN + BAD) > 0) + sum(1 for it, sg, _ in raw if tone(it["title"]) * sg > 0)
+        dns = sum(1 for it, sg in comp if tone(it["title"], UP + GOOD, DOWN + BAD) < 0) + sum(1 for it, sg, _ in raw if tone(it["title"]) * sg < 0)
+        L.append("・整體：利多 %d 則、利空 %d 則 → %s" % (ups, dns, "偏利多，照計畫抱著" if ups > dns else
+                 "偏利空，留意收盤有沒有守住支撐，跌破停損照計畫出場" if dns > ups else "多空都有，先照原本計畫"))
+        out.append("\n".join(L))
+    if not out:
+        return ""
+    return "\n\n".join(["📰 持股相關新聞（近 %d 小時，只給自己）" % hours] + out +
+                       ["利多／利空依標題的字判斷，可能看錯；拿不準就把新聞貼給 Claude 一起看。"])
+
+
 def main():
     ld = lambda n, d=None: json.load(open(os.path.join(DIR, n), encoding="utf-8")) if os.path.exists(os.path.join(DIR, n)) else d
     cfg, prof = ld("sop_config.json", {}), ld("stock_profiles.json", {})
