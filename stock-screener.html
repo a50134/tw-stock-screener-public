@@ -2445,8 +2445,8 @@ function ordWhy(r){const o=r.o,sd=o.side==='b'?'買':'賣';
   const how=o.done?'實際成交（照你輸入的價錢記錄）':o.side==='b'?(r.fill<o.px?`開盤 ${ordP(r.fill)} 就比限價低`:'盤中碰到限價'):(r.fill>o.px?`開盤 ${ordP(r.fill)} 就比限價高`:'盤中碰到限價');
   return`${D[r.t]} ${sd}到 ${ordP(r.fill)} × ${r.qq} 股：${how}${r.edge?'（剛好碰到，要看排隊，可能沒成交）':''}`+(o.side==='s'?`，已實現 ${ordMoney(r.pnl)}`:'')+(o.side==='s'&&r.qq<o.q?`（持股只有 ${r.qq} 股）`:'')}
 function ordText(list,disc){
-  if(!list.length)return'';const E=ordEval(list,disc),L=[`📝 模擬下單（資料日 ${E.date}，手續費 ${disc} 折）`];
-  E.R.forEach(r=>{const o=r.o,nm=r.s?`${o.id} ${r.s.name}`:o.id,ic={fill:'✅',miss:'❌',pend:'⏳',nodata:'⚠️'}[r.st];
+  if(!list.length)return'';const E=ordEval(list,disc),R=E.R.filter(r=>r.st!=='miss');if(!R.length&&!E.holds.length)return'';const L=[`📝 模擬下單（資料日 ${E.date}，手續費 ${disc} 折）`];
+  R.forEach(r=>{const o=r.o,nm=r.s?`${o.id} ${r.s.name}`:o.id,ic={fill:'✅',miss:'❌',pend:'⏳',nodata:'⚠️'}[r.st];
     L.push(`・${nm} ${o.side==='b'?'買進':'賣出'} ${o.done?'成交價':'限價'} ${ordP(o.px)} × ${o.q} 股（${o.d}${o.n>1?`起 ${o.n} 天`:''}）\n  ${ic} ${ordWhy(r)}`)});
   if(E.holds.length){L.push('持股：');E.holds.forEach(h=>L.push(h.q?`・${h.id} ${h.name} ${h.q} 股｜均價 ${h.avg.toFixed(2)}（含手續費）｜收盤 ${ordP(h.c)}｜今天 ${ordMoney(h.td)}｜未實現 ${ordMoney(h.u)}（扣賣出手續費和稅）`:`・${h.id} ${h.name} 已全部賣出｜已實現 ${ordMoney(h.real)}`))}
   if(E.holds.length)L.push(`合計：今天 ${ordMoney(E.today)}｜未實現 ${ordMoney(E.unreal)}｜已實現 ${ordMoney(E.real)}`);
@@ -2458,7 +2458,7 @@ function renderOrders(){
   $('#oIds').innerHTML=DATA.stocks.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
   const cls=x=>x>0?'up':x<0?'down':'flat';
   $('#ordSum').innerHTML=E.holds.length?`<span>今天 <b class="${cls(E.today)}">${ordMoney(E.today)}</b></span><span>未實現 <b class="${cls(E.unreal)}">${ordMoney(E.unreal)}</b></span><span>已實現 <b class="${cls(E.real)}">${ordMoney(E.real)}</b></span>`:'';
-  $('#ordTbl').innerHTML=E.R.length?`<thead><tr><th>股票</th><th>買賣</th><th>限價</th><th>股數</th><th>日期</th><th>狀態</th><th>說明</th><th></th></tr></thead><tbody>`+E.R.map(r=>{const o=r.o,st=r.st==='pend'&&o.done?['wait','待收盤']:{fill:['fill','成交'],miss:['miss','未成交'],pend:['wait','掛單中'],nodata:['miss','沒資料']}[r.st];
+  const RR=E.R.filter(r=>r.st!=='miss');$('#ordTbl').innerHTML=RR.length?`<thead><tr><th>股票</th><th>買賣</th><th>限價</th><th>股數</th><th>日期</th><th>狀態</th><th>說明</th><th></th></tr></thead><tbody>`+RR.map(r=>{const o=r.o,st=r.st==='pend'&&o.done?['wait','待收盤']:{fill:['fill','成交'],miss:['miss','未成交'],pend:['wait','掛單中'],nodata:['miss','沒資料']}[r.st];
     return`<tr><td>${esc(o.id)} ${esc(r.s?r.s.name:'')}</td><td>${o.side==='b'?'買進':'賣出'}</td><td>${ordP(o.px)}</td><td>${o.q}</td><td>${esc(o.d)}${o.n>1?` +${o.n}天`:''}</td><td><span class="ost ${st[0]}">${st[1]}</span></td><td class="why">${esc(ordWhy(r))}</td><td><button class="x" type="button" data-odel="${esc(o.k)}" aria-label="刪除這筆">✕</button></td></tr>`}).join('')+'</tbody>'
     :'<tbody><tr><td class="why">還沒有下單。填上代號、限價、股數後按「下單」，就會用日K判斷有沒有成交、賺多少。</td></tr></tbody>';
   $('#ordHold').innerHTML=E.holds.length?`<thead><tr><th>持股</th><th>股數</th><th>均價</th><th>收盤</th><th>今天</th><th>未實現</th><th>已實現</th></tr></thead><tbody>`+E.holds.map(h=>`<tr><td>${esc(h.id)} ${esc(h.name)}</td><td>${h.q}</td><td>${h.q?h.avg.toFixed(2):'—'}</td><td>${ordP(h.c)}</td><td class="${cls(h.td)}">${ordMoney(h.td)}</td><td class="${cls(h.u)}">${h.q?ordMoney(h.u):'—'}</td><td class="${cls(h.real)}">${h.real?ordMoney(h.real):'—'}</td></tr>`).join('')+'</tbody>':'';
