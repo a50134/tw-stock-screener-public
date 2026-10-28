@@ -1,0 +1,33 @@
+name: 循環股近 5 年漲跌研究
+
+# 手動執行（之後每月 2 日自動更新）：每檔循環股抓 2021 年起的日K與月營收，找出大漲大跌波段、固定發生的月份、營收是否領先
+on:
+  schedule:
+    - cron: '23 1 2 * *'   # 每月 2 日台灣時間 09:23
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - run: python cycle_study.py
+      - name: 存回研究結果
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cycle_study.json cycle_study.md
+          git commit -q -m "更新循環股近 5 年漲跌研究" || exit 0
+          for i in 1 2 3; do git pull -q --rebase --autostash && git push -q && break || sleep 5; done
