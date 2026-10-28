@@ -19,7 +19,7 @@ import sys
 import time
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-START = "2021-01-01"
+START = "2020-07-01"  # 往前多抓半年，避免 2021 年 1 月因為是資料第一個月被誤算成低點
 SWING = 35  # 大波段門檻（%）
 
 # 產業分組：stock_profiles.json 的 biz／cyc 出現這些字就歸到這一組（cycle_reasons.json 用同樣的組名）
@@ -109,7 +109,7 @@ def study(sid, name, prof, px, rev):
     months, closes = list(M), [M[k][3] for k in M]
     this = dt.date.today().year
     yl, yh = {}, {}
-    for y in range(2021, this + 1):
+    for y in range(2021, this + 1):  # 只算 2021 年起的年份（2020 下半只拿來當前一段資料）
         ks = [k for k in months if k.startswith(str(y))]
         if not ks:
             continue
