@@ -197,7 +197,7 @@ def main():
                 nc = analysis.guard_cycle(P, json.load(open(os.path.join(DIR, "data.json"), encoding="utf-8")))  # 循環股在平均高點附近
                 if n or nc:
                     json.dump(P, open(pp, "w", encoding="utf-8"), ensure_ascii=False)
-                log("大盤：%s；量價突破改先觀望 %d 檔；循環股在高檔改先觀望 %d 檔" % (weak or "不弱", n, nc))
+                log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔；循環股在高檔改先觀望 %d 檔" % (weak or "不弱", n, nc))
         except Exception as e:
             log("大盤偏弱檢查失敗，略過：", e)
         PRIV = "report_line_private.txt"  # 只給自己（發 Discord，不佔 LINE 額度）：持股、買賣紀錄；群發的 report_line.txt 不放持股
@@ -269,6 +269,14 @@ def main():
                 log("循環股谷底轉強提醒已加入報告")
         except Exception as e:
             log("循環股谷底轉強掃描失敗，略過：", e)
+        try:  # 飆股前兆（2026-10 研究：長紅 K＋營收創新高／投信連買）
+            import rocket
+            rk = rocket.scan(ld("data.json"), ld("stock_profiles.json", {}))
+            if rk:
+                add(["report_discord.txt"], rk)
+                log("飆股前兆已加入報告")
+        except Exception as e:
+            log("飆股前兆掃描失敗，略過：", e)
         if (today - last).days >= 2:  # 每週復盤（週日或連假最後一天晚上）：檢討每筆買賣，賺的賠的都記到 lessons.json
             try:
                 import review
@@ -322,7 +330,7 @@ def main():
             allh = [r for r in P.get("rows", []) if r.get("state") == "hold"]
             hold = [r for r in allh if not str(r.get("hold_why", "")).startswith("循環股")]
             cyc_h = [r for r in allh if str(r.get("hold_why", "")).startswith("循環股")]
-            notes = ["風險偏高（%s）：只因量價突破入選的 %d 檔先觀望（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:12]))] if hold else []
+            notes = ["風險偏高（%s）：只因量價突破／穩健動能入選的 %d 檔先觀望（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:12]))] if hold else []
             if cyc_h:
                 notes.append("循環股在高檔先觀望（已到近 5 年平均高點附近）：%s" % "、".join(r["name"] for r in cyc_h[:12]))
             notes += [x for x in (cycle or "").split("\n") if x.strip()]  # 循環股谷底轉強

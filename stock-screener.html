@@ -1403,6 +1403,13 @@ const pct=x=>isFinite(x)?(x>0?'+':'')+x.toFixed(1)+'%':'—';
 const zh=x=>{if(!isFinite(x))return'—';const a=Math.abs(x);return(x<0?'-':'')+(a>=1e4?(a/1e4).toFixed(a>=1e5?0:1)+'萬':Math.round(a).toLocaleString())};
 const PARTY={fi:'外資',it:'投信',dl:'自營商',all:'三大法人'};
 const NA={ok:false,v:-Infinity,t:'—'};
+/* 穩健動能：(5 天前收盤 ÷ 125 天前收盤 − 1) ÷ 近 120 天日報酬標準差，全部股票排名（2026-10 每週策略搜尋，回測 13 個月平均 +8.8%、隨機 +4.4%） */
+let VAMC={};
+const vamRank=(t,f)=>{const key=(DATA&&DATA.asOf)+'|'+(DATA&&DATA.stocks.length)+'|'+t+'|'+f;if(VAMC[key])return VAMC[key];const L=[];
+ for(const s of DATA.stocks){if(/^00/.test(s.id)||t<125||s.c.length<=t)continue;const c=s.c;if(!(c[t]>=10&&c[t-125]>0))continue;if(sum(s.v,t-19,t)/20<=500)continue;if(f>0&&!(sum(s.fi||[],t-f+1,t)>0))continue;
+  let n=0,m=0,q=0;for(let i=t-119;i<=t;i++){if(!(c[i-1]>0))continue;const r=c[i]/c[i-1]-1;n++;m+=r;q+=r*r}if(n<60)continue;m/=n;const sd=Math.sqrt(Math.max(q/n-m*m,0));if(!(sd>0))continue;
+  L.push([s.id,(c[t-5]/c[t-125]-1)/sd])}
+ L.sort((a,b)=>b[1]-a[1]);const M=new Map();L.forEach((x,i)=>M.set(x[0],i+1));VAMC={[key]:M};return M};
 
 /* ================= 條件庫 ================= */
 const CONDS={
@@ -1506,6 +1513,7 @@ const CONDS={
  nearLow:{g:'技術',name:'低檔區',tpl:'股價距 {n} 日低點 {x}% 以內',p:{n:60,x:5},col:'距低點',ev(s,t,p){if(t<p.n-1)return NA;let lo=1e12;for(let i=t-p.n+1;i<=t;i++)lo=Math.min(lo,s.l[i]);const x=(s.c[t]/lo-1)*100;return{ok:x<=p.x,v:x,t:pct(x)}}},
  volShrink:{g:'技術',name:'量縮',tpl:'成交量 < {n} 日均量的 {x} 倍',p:{n:20,x:0.6},col:'量比',ev(s,t,p){if(t<p.n)return NA;const a=sum(s.v,t-p.n,t-1)/p.n,x=s.v[t]/a;return{ok:x<p.x,v:x,t:x.toFixed(2)+'倍'}}},
  price:{g:'基本',name:'股價區間',tpl:'股價介於 {a} ~ {b} 元',p:{a:20,b:1000},col:null,ev(s,t,p){const x=s.c[t];return{ok:x>=p.a&&x<=p.b,v:x,t:''}}},
+ vamTop:{g:'技術',name:'穩健動能排名',tpl:'近 6 個月漲幅÷波動（漲得多又走得穩）排名前 {n} 名；只比外資近 {f} 日買超、20 日均量 500 張以上、股價 10 元以上的股票（{f} 填 0＝不看外資）',p:{n:15,f:20},col:'動能排名',ev(s,t,p){const k=vamRank(t,p.f).get(s.id);if(!k)return NA;return{ok:k<=p.n,v:-k,t:'第 '+k+' 名'}}},
  avgVol:{g:'基本',name:'成交量門檻',tpl:'{n} 日均量 > {x} 張',p:{n:20,x:1000},col:'均量',ev(s,t,p){const x=sum(s.v,t-p.n+1,t)/Math.min(p.n,t+1);return{ok:x>p.x,v:x,t:zh(x)}}},
  pe:{g:'基本',name:'本益比',tpl:'本益比介於 0 ~ {x} 倍',p:{x:20},col:'本益比',ev(s,t,p){const x=peAt(s,t);if(!(x>0))return NA;return{ok:x<=p.x,v:x,t:x.toFixed(1)}}},
  peZone:{g:'基本',name:'本益比河流圖位置',tpl:'股價位於本益比河流圖下方 {x}% 以內（20＝便宜、40＝合理偏低、60＝合理）',p:{x:40},col:'河流圖',ev(s,t,p){const r=river(s,t);if(!r)return NA;return{ok:r.pct<=p.x,v:-r.pct,t:`${r.zone}・PE ${r.pe.toFixed(1)}`}}},
@@ -1593,6 +1601,7 @@ S.strategies.forEach(st=>st.conds=st.conds.filter(c=>CONDS[c.type]));
 /* 2026-10：季底作帳條件不再在季底前 3 天內和季底當天成立；新增參考「預估營收＋價值位置＋籌碼」三面分析的策略 */
 S.strategies.forEach(x=>x.conds.forEach(c=>{if(c.type==='quarterEnd'&&c.p.m==null)c.p.m=3}));
 S.cycP=Object.assign({n:5,buy:10,sell:10,d:10},S.cycP||{});S.cyc=S.cyc&&typeof S.cyc==='object'?S.cyc:{};
+if(!S.v15){S.v15=1;if(!S.strategies.some(x=>x.id==='s19'))S.strategies.push({id:'s19',name:'穩健動能＋外資買超',mode:'all',k:2,conds:[C('vamTop',{n:15,f:20})]})}
 if(!S.v14){S.v14=1;const R=(k,p)=>Object.assign(C(k,p),{req:true});if(!S.strategies.some(x=>x.id==='s18'))S.strategies.push({id:'s18',name:'景氣循環股：平均低點分批買',mode:'all',k:2,conds:[C('cycLow',{n:5,x:10,d:10}),C('avgVol',{n:20,x:300})]})}
 if(!S.v13){S.v13=1;const R=(k,p)=>Object.assign(C(k,p),{req:true});if(!S.strategies.some(x=>x.id==='s17'))S.strategies.push({id:'s17',name:'三面選股：預估營收＋河流圖＋高手籌碼',mode:'atLeast',k:3,conds:[R('revFcYoY',{x:15}),C('revFcHigh',{n:12}),C('peZone',{x:60}),C('riverUp',{x:0}),C('smartBuy',{n:120,x:3,m:5}),R('avgVol',{n:20,x:500})]})}
 if(!S.v12){S.v12=1;if(!S.strategies.some(x=>x.id==='s16'))S.strategies.push({id:'s16',name:'跌深＋外資回補',mode:'all',k:2,conds:[C('dropHigh',{n:60,x:20}),C('maReclaim',{n:20}),C('instDays',{party:'fi',n:5,m:3}),C('instSum',{party:'fi',n:5,x:0}),C('avgVol',{n:20,x:300})]})}

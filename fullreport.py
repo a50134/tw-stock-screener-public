@@ -47,6 +47,14 @@ def build(data, cfg, plan, profiles, private=True):
     if cyc:
         cl = cyc.split("\n")
         R["sections"].append({"title": "🔄 循環股谷底轉強", "intro": cl[1] if len(cl) > 1 else "", "items": [], "bullets": [x.strip("・ ") for x in cl[2:]]})
+    try:
+        import rocket
+        rk = rocket.scan(data, profiles)
+    except Exception:
+        rk = ""
+    if rk:
+        rl = rk.split("\n")
+        R["sections"].append({"title": "🚀 飆股前兆", "intro": rl[1], "items": [], "bullets": [x.strip("・ ") for x in rl[3:] if x.strip()]})
     for grp, title, intro in ((ok, "🟢 可買（依健檢分數排序）", "價格在參考買進區間內可以分批買，收盤跌破停損就出場；國際風險高時只買一半。"),
                               (wait, "🟡 等拉回再買", "現在價格偏高，等跌回買進區間再買；不要追高。")):
         if grp:
