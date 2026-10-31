@@ -160,6 +160,9 @@ def check(s, dates, h, prof=None):
     hw = [x for x in (s.get("hw") or []) if x.get("big") is not None]
     if len(hw) >= 3 and hw[-1]["big"] < hw[-2]["big"] < hw[-3]["big"]:
         warn.append("千張大戶持股連 2 週減少（%.1f%% → %.1f%%），大戶在出貨" % (hw[-3]["big"], hw[-1]["big"]))
+    ins = s.get("ins") or {}
+    if ins.get("n30"):
+        warn.append("內部人近 30 天申報要賣 %s 張（董監、經理人或大股東），留意是否高檔出貨" % "{:,}".format(ins["sell30"]))
     rv = {x["m"]: x["v"] for x in (s.get("rev") or [])}
     yo = []
     for m in sorted(rv)[-2:]:

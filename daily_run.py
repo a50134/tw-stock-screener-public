@@ -186,6 +186,15 @@ def main():
             tdcc.merge(os.path.join(DIR, "data.json"))
         except Exception as e:
             log("集保大戶資料失敗，略過：", e)
+        try:  # 內部人申報（事前申報轉讓、董監持股）：存進歷史、填進 data.json；失敗不影響報告
+            import insider
+            try:
+                insider.update()
+            except Exception as e:
+                log("內部人申報抓取失敗，用已有的歷史：", e)
+            insider.merge(os.path.join(DIR, "data.json"))
+        except Exception as e:
+            log("內部人申報資料失敗，略過：", e)
         run(["node", "daily_report.js", "data.json", "sop_config.json"], timeout=900)
         try:  # 大盤偏弱（國際風險高或 0050 跌破季線）時，只因量價突破入選的改成先觀望
             import analysis

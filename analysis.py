@@ -390,6 +390,13 @@ def block(s, f, prof, row=None, hold=None):
         else:
             t += "、散戶 %.1f%%（%s 集保）" % (x["ret"], x["d"][5:].replace("-", "/"))
         ch.append(t)
+    try:  # 內部人申報（證交所／櫃買開放資料）
+        import insider
+        it_ = insider.text(s.get("ins"))
+        if it_:
+            ch.append(it_)
+    except Exception:
+        pass
     L.append("・籌碼：" + "；".join(ch))
     m5, m20, m60 = f["ma"]
     tech = []
