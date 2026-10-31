@@ -182,6 +182,12 @@ def facts(s, t):
         why.append("營收連 3 個月年增 10%% 以上（最新 %s 年增 %s）" % (yo[-1][0][5:].lstrip("0") + "月", fmt(yo[-1][1])))
     elif yo and yo[-1][1] > 20:
         why.append("最新月營收年增 %s" % fmt(yo[-1][1]))
+    # 加分條件（2026-10 每週策略搜尋）：最新月營收創近 13 個月新高，且連 2 個月年增（回測抱 20 天平均 +8.1%，隨機 +4.4%）
+    ks = sorted(rv)
+    f["rev13"] = False
+    if len(ks) >= 13 and rv[ks[-1]] > 0 and rv[ks[-1]] >= max(rv[k] for k in ks[-13:-1]) and len(yo) >= 2 and yo[-1][1] > 0 and yo[-2][1] > 0:
+        f["rev13"] = True
+        why.append("➕加分：%s營收創近 13 個月新高、連 2 個月年增" % (ks[-1][5:].lstrip("0") + "月"))
     if f["it_streak"] >= 3:
         why.append("投信連買 %d 天（近 10 日 %s 張）" % (f["it_streak"], zh(f["it10"])))
     elif f["it10"] > 0 and f["it10"] > v20 * 0.2:
@@ -238,6 +244,8 @@ def facts(s, t):
 
 
 BREAKOUT = "量價突破"
+MOMENTUM = "穩健動能＋外資買超"  # 追強勢股：大盤偏弱時一樣先觀望（回測 2026-06 大盤回檔時平均 -13%）
+CHASE = (BREAKOUT, MOMENTUM)
 
 
 def market_weak(plan, hist_path=None):
@@ -258,13 +266,13 @@ def market_weak(plan, hist_path=None):
 
 
 def guard_breakout(plan, weak):
-    """大盤偏弱或國際風險高時，只因「量價突破」入選的股票改成先觀望（回測：盤整偏弱時追突破平均 -7%）。回傳改了幾檔"""
+    """大盤偏弱或國際風險高時，只因「量價突破」或「穩健動能」入選的股票改成先觀望（回測：盤整偏弱時追突破平均 -7%）。回傳改了幾檔"""
     n = 0
     if not weak:
         return 0
     for r in plan.get("rows", []):
         st = r.get("strategies") or []
-        if st and all(x == BREAKOUT for x in st) and r.get("state") != "hold":
+        if st and all(x in CHASE for x in st) and r.get("state") != "hold":
             r["state"], r["hold_why"] = "hold", weak
             n += 1
     return n
@@ -303,7 +311,7 @@ def advise(s, t, row=None):
         z = "%s～%s" % (px(row["lo"]), px(row["hi"]))
         tg = "，目標 %s" % px(row["t1"]) if row.get("t1") else ""
         if row.get("state") == "hold":
-            return "⚪ 先觀望：%s，量價突破這時容易追高被套；等大盤轉強再考慮（參考 %s，跌破 %s 停損）" % (row.get("hold_why") or "大盤偏弱", z, px(row["stop"]))
+            return "⚪ 先觀望：%s，追突破、追強勢股這時容易追高被套；等大盤轉強再考慮（參考 %s，跌破 %s 停損）" % (row.get("hold_why") or "大盤偏弱", z, px(row["stop"]))
         if row.get("state") == "ok":
             return "🟢 可買：%s 分批買，跌破 %s 停損%s" % (z, px(row["stop"]), tg)
         return "🟡 等拉回：跌到 %s 再買，跌破 %s 停損%s" % (z, px(row["stop"]), tg)

@@ -44,7 +44,7 @@ def build(plan, data=None, profiles=None, cycle="", top_ok=8, top_wait=5, top_de
     hold = [r for r in allh if not str(r.get("hold_why", "")).startswith("循環股")]
     cyc = [r for r in allh if str(r.get("hold_why", "")).startswith("循環股")]
     if hold:
-        L += ["", "⚪ 風險偏高先觀望（%s）：只因量價突破入選的 %d 檔先不追（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:10]) + ("…" if len(hold) > 10 else ""))]
+        L += ["", "⚪ 風險偏高先觀望（%s）：只因量價突破／穩健動能入選的 %d 檔先不追（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:10]) + ("…" if len(hold) > 10 else ""))]
     if cyc:
         L += ["", "⚪ 循環股在高檔先觀望（已到近 5 年平均高點附近，低點買、高點賣）：%s" % "、".join(r["name"] for r in cyc[:10])]
     if cycle:
