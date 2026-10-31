@@ -83,6 +83,13 @@ def extras(s):
         d = hw[-1]["big"] - hw[-2]["big"]
         out.append("千張大戶 %.1f%%（上週%s %.1f）" % (hw[-1]["big"], "增" if d >= 0 else "減", abs(d)))
     try:
+        import insider
+        x = insider.text(s.get("ins"))
+        if x:
+            out.append(x)
+    except Exception:
+        pass
+    try:
         import alert
         seen, ns = set(), []
         for x in s.get("news") or []:

@@ -37,6 +37,7 @@ jobs:
       - name: 抓資料並分析（結果只發 Discord）
         run: |
           git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:tdcc_hist.json > tdcc_hist.json 2>/dev/null || rm -f tdcc_hist.json
+          git show FETCH_HEAD:insider_hist.json > insider_hist.json 2>/dev/null || rm -f insider_hist.json
           [ -f priv/sop_config.json ] && python private_sync.py pull priv > /dev/null || true
           python lookup.py --event
       - name: 結果存一份到私人專案（Claude 可以讀來幫你分析；公開專案看不到）

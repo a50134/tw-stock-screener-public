@@ -7,6 +7,7 @@ lookup.py - 查個股：輸入代號或名稱，馬上從 FinMind 抓資料分�
 
 用法：python lookup.py 1605 台積電 2603      # 代號或名稱都可以，空白或逗號分隔
       python lookup.py 1605 --dry           # 只印在畫面，不發 Discord
+      python lookup.py 1605 --no-bt         # 不做 5 年回測（比較快）
 結果：lookup.txt（公開版，不含持股）、Discord（含持股提醒）
 """
 import json
@@ -103,6 +104,13 @@ def main():
         tdcc.merge(os.path.join(DIR, "lookup.json"))
     except Exception as e:
         print("集保大戶資料失敗，略過：", type(e).__name__)
+    try:  # 內部人申報：用每晚存的歷史（沒有就現在抓最新一天）
+        import insider
+        if not os.path.exists(insider.HIST):
+            insider.update()
+        insider.merge(os.path.join(DIR, "lookup.json"))
+    except Exception as e:
+        print("內部人申報資料失敗，略過：", type(e).__name__)
     data = json.load(open(os.path.join(DIR, "lookup.json"), encoding="utf-8"))
     json.dump({"macro": data.get("macro") or []}, open(os.path.join(DIR, "macro.json"), "w", encoding="utf-8"), ensure_ascii=False)
     import analysis
@@ -133,6 +141,13 @@ def main():
             L.append("・即時價（%s 證交所）：%s%s，開盤 %s%s" % (
                 live_t, exits.px(p_), "（%+.2f%%）" % ((p_ / y - 1) * 100) if y else "", exits.px(o) if o else "—",
                 "" if z else "（收盤集合競價中，最新價用開盤價）"))
+        if "--no-bt" not in sys.argv:  # 買股前 5 年回測（買了抱著、照規則買賣、現在位置、適不適合）
+            try:
+                import fetch_finmind
+                import pretrade
+                L.append(pretrade.run(s["id"], s["name"], fetch_finmind.get))
+            except Exception as e:
+                print("5 年回測失敗，略過：", type(e).__name__)
         nl = news_lines(s)
         if nl:
             L.append("・最近新聞：\n" + "\n".join(nl))
