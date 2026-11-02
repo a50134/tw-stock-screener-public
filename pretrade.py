@@ -213,6 +213,9 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
         tm = "現在在 5 年低檔，%s" % ("但還在年線下方，等站回季線再進比較安全" if c < m240 and c < m60 else "位置便宜，可以分批買")
     else:
         tm = "現在在中間位置，%s" % ("趨勢向上（站上季線）" if c > m60 else "趨勢偏弱（跌破季線），等站回季線再買")
+    LAST.clear()
+    LAST.update({"long_ok": lt == "適合長抱", "trend_up": c > m60, "pos": pos,
+                 "summary": "%s，年化 %+.1f%%%s" % (lt, cg, "（0050 %+.1f%%）" % bcg if bcg is not None else "")})
     L.append("　➜ 結論：%s；%s。年波動 %.0f%%（0050 約 20%%，越大代表漲跌越劇烈）" % ("，".join(good), tm, vol))
     return "\n".join(L)
 
@@ -231,6 +234,7 @@ def run(sid, name, get):
 
 
 _BENCH = {}
+LAST = {}  # 最近一次回測的結論（給下單前檢查表用）
 
 
 if __name__ == "__main__":

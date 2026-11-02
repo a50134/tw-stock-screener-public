@@ -145,6 +145,7 @@ def main():
             try:
                 import fetch_finmind
                 import pretrade
+                pretrade.LAST.clear()
                 L.append(pretrade.run(s["id"], s["name"], fetch_finmind.get))
             except Exception as e:
                 print("5 年回測失敗，略過：", type(e).__name__)
@@ -156,6 +157,14 @@ def main():
             lv, act, rs, tips, P = exits.check(s, data["dates"], H[s["id"]], prof.get(s["id"]))
             L.append("・你的持股：%s｜%s｜收盤跌破 %s 停損%s" % (act, "；".join(rs) if rs else "照計畫抱著", exits.px(P["stop"]),
                                                        "，%s 先賣一半" % exits.px(P["t1"]) if P.get("hf") and P["close"] < P["t1"] else ""))
+        try:  # 依你的資金買多少＋下單前檢查表（只發 Discord）
+            import pretrade
+            import sizing
+            ck = sizing.checklist(s, len(s["c"]) - 1, analysis.facts(s, len(s["c"]) - 1), prof.get(s["id"]), None, cfg, data,
+                                  bt=dict(pretrade.LAST) if pretrade.LAST else None)
+            L.extend(ck)
+        except Exception as e:
+            print("下單前檢查表失敗，略過：", type(e).__name__)
         priv.append("\n".join(L))
     head = "🔍 查個股（%s 收盤資料）" % data["asOf"]
     tail = "依 FinMind 公開資料與固定規則整理，不是投資建議。"
