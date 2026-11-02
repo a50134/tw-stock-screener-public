@@ -157,6 +157,9 @@ def check(s, dates, h, prof=None):
     md = analysis.macd(c, t)  # MACD 在零軸之上死亡交叉＝高檔轉弱，先提醒（不叫你賣）
     if md and md["cross"] and md["cross"] < 0 and md["dif"] > 0 and md["sig"] > 0:
         warn.append("MACD 高檔死亡交叉（%s），短線動能轉弱" % ("今天" if md["cross"] == -1 else "%d 天前" % (-md["cross"] - 1)))
+    dm = analysis.dmi(s["h"], s["l"], c, t)  # −DI 上穿 +DI 且 ADX 走高＝空頭趨勢成形，先提醒（不叫你賣）
+    if dm and dm["mdi"] > dm["pdi"] and dm["adx"] >= 25 and dm["adx"] > dm["adx_prev"]:
+        warn.append("DMI 空頭趨勢成形（−DI %.0f > +DI %.0f、ADX %.0f 走高），跌勢有力，留意停損" % (dm["mdi"], dm["pdi"], dm["adx"]))
     hw = [x for x in (s.get("hw") or []) if x.get("big") is not None]
     if len(hw) >= 3 and hw[-1]["big"] < hw[-2]["big"] < hw[-3]["big"]:
         warn.append("千張大戶持股連 2 週減少（%.1f%% → %.1f%%），大戶在出貨" % (hw[-3]["big"], hw[-1]["big"]))

@@ -124,6 +124,71 @@ def macd(c, t=None):
     return {"dif": dif[t], "sig": sig[t], "cross": cross, "hist": dif[t] - sig[t], "hist_prev": dif[t - 1] - sig[t - 1]}
 
 
+def dmi(h, l, c, t=None, n=14):
+    """DMI（14），算法和網頁版一樣（Wilder 平滑）：
+    +DI 多方力道、−DI 空方力道、ADX 趨勢強度（不分多空；> 25 有趨勢、< 20 盤整）
+    回傳 {pdi, mdi, adx, adx_prev, cross: 幾天前 DI 交叉（正＝+DI 上穿、負＝−DI 上穿、None＝近 10 天沒有）}"""
+    t = len(c) - 1 if t is None else t
+    if t < n * 2 + 5:
+        return None
+    P, M, A = [None], [None], [None]
+    tr = pd = md = 0.0
+    adx, dxs = None, []
+    for i in range(1, t + 1):
+        up, dn = h[i] - h[i - 1], l[i - 1] - l[i]
+        r = max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1]))
+        p = up if up > dn and up > 0 else 0
+        m = dn if dn > up and dn > 0 else 0
+        if i <= n:
+            tr, pd, md = tr + r, pd + p, md + m
+        else:
+            tr, pd, md = tr - tr / n + r, pd - pd / n + p, md - md / n + m
+        if i < n:
+            P.append(None), M.append(None), A.append(None)
+            continue
+        pdi = pd / tr * 100 if tr else 0
+        mdi = md / tr * 100 if tr else 0
+        dx = abs(pdi - mdi) / (pdi + mdi) * 100 if pdi + mdi else 0
+        if adx is None:
+            dxs.append(dx)
+            if len(dxs) == n:
+                adx = sum(dxs) / n
+        else:
+            adx = (adx * (n - 1) + dx) / n
+        P.append(pdi), M.append(mdi), A.append(adx)
+    if A[t] is None or A[t - 3] is None:
+        return None
+    cross = None
+    for j in range(t, max(t - 10, n), -1):
+        if P[j] > M[j] and P[j - 1] <= M[j - 1]:
+            cross = t - j + 1
+            break
+        if P[j] < M[j] and P[j - 1] >= M[j - 1]:
+            cross = -(t - j + 1)
+            break
+    return {"pdi": P[t], "mdi": M[t], "adx": A[t], "adx_prev": A[t - 3], "cross": cross}
+
+
+def dmi_text(d):
+    """DMI 狀態一句話"""
+    if not d:
+        return ""
+    side = "多方（+DI %.0f > −DI %.0f）" % (d["pdi"], d["mdi"]) if d["pdi"] > d["mdi"] else "空方（−DI %.0f > +DI %.0f）" % (d["mdi"], d["pdi"])
+    a = d["adx"]
+    rising = a > d["adx_prev"]
+    strength = ("趨勢很強" if a >= 40 else "有趨勢" if a >= 25 else "趨勢剛形成" if a >= 20 else "盤整、沒有方向") + ("、還在變強" if rising and a >= 20 else "、轉弱中" if not rising and a >= 25 else "")
+    t = "DMI %s，ADX %.0f %s" % (side, a, strength)
+    if d["cross"]:
+        k = abs(d["cross"]) - 1
+        when = "今天" if k == 0 else "%d 天前" % k
+        t += "；%s%s" % (when, "+DI 上穿 −DI（轉多訊號）" if d["cross"] > 0 else "−DI 上穿 +DI（轉空訊號）")
+    if d["pdi"] > d["mdi"] and a >= 25 and rising:
+        t += "（多頭趨勢明確）"
+    elif d["mdi"] > d["pdi"] and a >= 25 and rising:
+        t += "（空頭趨勢明確，不要接刀）"
+    return t
+
+
 def macd_text(m):
     """MACD 狀態一句話"""
     if not m:
@@ -214,6 +279,7 @@ def facts(s, t):
     f["why"] = why
     f["m60"] = m60
     f["macd"] = macd(c, t)
+    f["dmi"] = dmi(h, l, c, t)
     # 營收細節：最新月營收（億）、月增、年增、今年累計年增、創近幾個月新高
     ms = sorted(rv)
     if ms and rv[ms[-1]] > 0:
@@ -407,6 +473,8 @@ def block(s, f, prof, row=None, hold=None):
             tech.append("收盤 %s 已跌破季線 %s" % (px(f["close"]), px(m60)))
         if f.get("macd"):
             tech.append(macd_text(f["macd"]))
+        if f.get("dmi"):
+            tech.append(dmi_text(f["dmi"]))
         sup = [("月線", m20), ("季線", m60)]
         sup = [(n, v) for n, v in sup if v < f["close"]]
         if sup:
