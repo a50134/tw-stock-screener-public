@@ -255,6 +255,15 @@ def main():
                 log("模擬下單已加入報告（只給自己）")
         except Exception as e:
             log("模擬下單計算失敗，略過：", e)
+        try:  # 模擬交易復盤：每筆模擬單的表現、進場檢討、理由還在嗎、計畫執行、學到什麼（只給自己）
+            import journal
+            jtext = journal.daily_review(ld("data.json"), cfg, ld("stock_profiles.json", {}))
+            if jtext:
+                add(["report_discord.txt", PRIV], jtext)
+                open(os.path.join(DIR, "journal_latest.txt"), "w", encoding="utf-8").write(jtext)  # 存回私人專案給 Claude 讀
+                log("模擬交易復盤已加入報告（只給自己）")
+        except Exception as e:
+            log("模擬交易復盤失敗，略過：", e)
         try:  # 自選觀察：走勢、法人、營收、近 3 天新聞（只給自己）
             import watch
             wids = [str(x) for x in ((cfg.get("state") or {}).get("watch") or [])]
