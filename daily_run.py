@@ -296,6 +296,16 @@ def main():
                     log("每週復盤已加入報告，新增 %d 條教訓" % len(new))
             except Exception as e:
                 log("每週復盤失敗，略過：", e)
+        try:  # 依你的資金：今晚可買的股票各買多少（只給自己）
+            import analysis
+            import sizing
+            P = ld("sop_plan.json", {})
+            stx = sizing.nightly(ld("data.json"), cfg, P.get("rows", []), ld("stock_profiles.json", {}), weak=analysis.market_weak(P))
+            if stx:
+                add(["report_discord.txt", PRIV], stx)
+                log("依資金買多少已加入報告（只給自己）")
+        except Exception as e:
+            log("依資金買多少失敗，略過：", e)
         if os.path.getsize(os.path.join(DIR, PRIV)):
             add([PRIV], "🔒 只給你：持股與買賣（%s 收盤）" % expect, front=True)
         if (today - last).days >= 2:  # 週日或連假最後一天晚上：整合休市期間的國際新聞與名單個股新聞

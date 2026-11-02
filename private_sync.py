@@ -1,5 +1,5 @@
 """
-private_sync.py - 私人資料（持股、買賣紀錄、自選觀察、持股賣出計畫、復盤教訓）放在私人專案，不放公開專案
+private_sync.py - 私人資料（持股、買賣紀錄、自選觀察、總資金與風險設定、持股賣出計畫、復盤教訓）放在私人專案，不放公開專案
 
 公開專案的 sop_config.json 不含 orders 與 state.watch；排程執行時：
   python private_sync.py pull priv   # 從私人專案（checkout 在 priv/）把私人資料併進來（只在執行環境，不會存回公開專案）
@@ -22,6 +22,8 @@ def pull(priv):
         pc = json.load(open(p, encoding="utf-8"))
         if pc.get("orders") is not None:
             cfg["orders"] = pc["orders"]
+        if pc.get("risk") is not None:  # 你的總資金與風險設定（sizing.py 算買多少用）
+            cfg["risk"] = pc["risk"]
         if (pc.get("state") or {}).get("watch") is not None:
             cfg.setdefault("state", {})["watch"] = pc["state"]["watch"]
         json.dump(cfg, open(cfg_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
