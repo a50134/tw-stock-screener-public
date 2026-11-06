@@ -264,6 +264,14 @@ def main():
                 log("模擬交易復盤已加入報告（只給自己）")
         except Exception as e:
             log("模擬交易復盤失敗，略過：", e)
+        try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
+            import addwatch
+            atext = addwatch.nightly(ld("data.json"), cfg, ld("stock_profiles.json", {}))
+            if atext:
+                add(["report_discord.txt", PRIV], atext)
+                log("加碼計畫監控已加入報告（只給自己）")
+        except Exception as e:
+            log("加碼計畫監控失敗，略過：", e)
         try:  # 自選觀察：走勢、法人、營收、近 3 天新聞（只給自己）
             import watch
             wids = [str(x) for x in ((cfg.get("state") or {}).get("watch") or [])]

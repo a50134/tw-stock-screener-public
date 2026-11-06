@@ -22,6 +22,8 @@ def pull(priv):
         pc = json.load(open(p, encoding="utf-8"))
         if pc.get("orders") is not None:
             cfg["orders"] = pc["orders"]
+        if pc.get("add_plans") is not None:  # 加碼計畫（addwatch.py）
+            cfg["add_plans"] = pc["add_plans"]
         if pc.get("risk") is not None:  # 你的總資金與風險設定（sizing.py 算買多少用）
             cfg["risk"] = pc["risk"]
         if (pc.get("state") or {}).get("watch") is not None:
