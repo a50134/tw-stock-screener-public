@@ -142,7 +142,7 @@ def yearly(P):
     return out
 
 
-def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs, bench="0050", pre_adjusted=False, unit=""):
+def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs, bench="0050", pre_adjusted=False, unit="", raw_hl=None):
     """pre_adjusted=True：價格已經是還原權值（美股 Adj Close），不用再調整（美股沒有漲跌幅限制，不能用跳空判斷減資）"""
     adj = (lambda r, d: [(x["date"], x["open"], x["max"], x["min"], x["close"]) for x in r if x.get("close")]) if pre_adjusted else adjust
     P = adj(rows, divs)
@@ -187,8 +187,9 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs, bench="005
     ys = {}
     for x in W:
         y = x[0][:4]
-        a = ys.setdefault(y, [x[2], x[3]])
-        a[0], a[1] = max(a[0], x[2]), min(a[1], x[3])
+        hi_, lo_ = (raw_hl[x[0]] if raw_hl and x[0] in raw_hl else (x[2], x[3]))  # 美股：用實際股價（只調整分割、不扣配息）
+        a = ys.setdefault(y, [hi_, lo_])
+        a[0], a[1] = max(a[0], hi_), min(a[1], lo_)
     full = [v for y, v in ys.items() if y != W[-1][0][:4]]
     ahi = st.mean(v[0] for v in full) if full else hi
     alo = st.mean(v[1] for v in full) if full else lo

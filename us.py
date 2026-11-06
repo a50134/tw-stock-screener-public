@@ -259,7 +259,8 @@ def lookup(t, get=None):
     conv = lambda R: [{"date": r["date"], "open": r["open"] * r["adj"] / r["close"], "max": r["high"] * r["adj"] / r["close"],
                        "min": r["low"] * r["adj"] / r["close"], "close": r["adj"]} for r in R]
     try:
-        L.append(pretrade.analyze(t, t, conv(rows), [], [], [], conv(br), [], bench="VOO", pre_adjusted=True))
+        L.append(pretrade.analyze(t, t, conv(rows), [], [], [], conv(br), [], bench="VOO", pre_adjusted=True,
+                                  raw_hl={r["date"]: (r["high"], r["low"]) for r in rows}))
     except Exception as e:
         L.append("・5 年回測失敗：%s" % type(e).__name__)
     return "\n".join(L)
