@@ -11,7 +11,7 @@ import shutil
 import sys
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-FILES = ["sell_plan.json", "lessons.json", "alert_state.json", "journal_latest.txt"]  # 每晚會更新、要存回私人專案的檔案
+FILES = ["sell_plan.json", "lessons.json", "alert_state.json", "journal_latest.txt", "us_latest.txt"]  # 每晚會更新、要存回私人專案的檔案
 
 
 def pull(priv):
@@ -22,6 +22,8 @@ def pull(priv):
         pc = json.load(open(p, encoding="utf-8"))
         if pc.get("orders") is not None:
             cfg["orders"] = pc["orders"]
+        if pc.get("us") is not None:  # 美股持股與預算（us.py）
+            cfg["us"] = pc["us"]
         if pc.get("add_plans") is not None:  # 加碼計畫（addwatch.py）
             cfg["add_plans"] = pc["add_plans"]
         if pc.get("risk") is not None:  # 你的總資金與風險設定（sizing.py 算買多少用）
