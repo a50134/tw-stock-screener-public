@@ -192,7 +192,7 @@ def report(cfg):
             S[t] = stats(rows, divs)
             names[t] = UNIVERSE.get(t) or nm or t
         if k % 10 == 0:
-            print("美股資料 %d/%d" % (k, len(tickers)), flush=True)
+            print("美股資料 %d/%d" % (k, len(tickers)), file=sys.stderr, flush=True)
         time.sleep(0.3)
     if not S:
         return "🇺🇸 美股：今天抓不到資料（Yahoo／FinMind 都失敗），明天再試"
