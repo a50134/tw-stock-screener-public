@@ -87,6 +87,31 @@ def main():
     if not words:
         print("請輸入股票代號或名稱，例如：python lookup.py 1605 台積電")
         return
+    # 美股代號（英文字母，例如 KO、MMM、VOO）：另外用 us.py 查（Yahoo Finance，不佔 FinMind 額度）
+    usw = [w.upper() for w in words if re.fullmatch(r"[A-Za-z]{1,5}(\.[A-Za-z])?", w)]
+    words = [w for w in words if w.upper() not in usw]
+    us_txt = []
+    if usw:
+        try:
+            import us
+            us_txt = [us.lookup(t) for t in usw]
+        except Exception as e:
+            print("美股查詢失敗：", type(e).__name__)
+        print("美股 %d 檔" % len(us_txt))
+    if not words:
+        head = "🔍 查美股（%s）" % __import__("datetime").date.today().isoformat()
+        tail = "依 Yahoo Finance 公開資料與固定規則整理，不是投資建議。"
+        txt = "\n\n".join([head] + us_txt + [tail])
+        open(os.path.join(DIR, "lookup.txt"), "w", encoding="utf-8").write(txt)
+        open(os.path.join(DIR, "lookup_full.txt"), "w", encoding="utf-8").write(txt)
+        if DRY:
+            print(txt)
+            return
+        url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+        if url:
+            import send_report
+            send_report.send_discord(url, txt)
+        return
     ids, miss = resolve(words)
     if miss:
         print("有 %d 個找不到（名稱打錯或已下市）" % len(miss))  # 不印查了什麼（公開執行紀錄）
@@ -168,6 +193,8 @@ def main():
         priv.append("\n".join(L))
     head = "🔍 查個股（%s 收盤資料）" % data["asOf"]
     tail = "依 FinMind 公開資料與固定規則整理，不是投資建議。"
+    pub += us_txt
+    priv += us_txt
     text_pub = "\n\n".join([head] + pub + [tail])
     open(os.path.join(DIR, "lookup.txt"), "w", encoding="utf-8").write(text_pub)
     open(os.path.join(DIR, "lookup_full.txt"), "w", encoding="utf-8").write("\n\n".join([head] + priv + [tail]))  # 完整版（存回私人專案給 Claude 讀）

@@ -264,6 +264,15 @@ def main():
                 log("模擬交易復盤已加入報告（只給自己）")
         except Exception as e:
             log("模擬交易復盤失敗，略過：", e)
+        try:  # 美股：持股、跌深配息候選、依預算買幾股（只給自己；Yahoo Finance，不佔 FinMind 額度）
+            if cfg.get("us"):
+                import us
+                utext = us.report(cfg)
+                add(["report_discord.txt", PRIV], utext)
+                open(os.path.join(DIR, "us_latest.txt"), "w", encoding="utf-8").write(utext)  # 存回私人專案給 Claude 讀
+                log("美股段落已加入報告（只給自己）")
+        except Exception as e:
+            log("美股段落失敗，略過：", e)
         try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
             import addwatch
             atext = addwatch.nightly(ld("data.json"), cfg, ld("stock_profiles.json", {}))

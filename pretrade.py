@@ -142,11 +142,13 @@ def yearly(P):
     return out
 
 
-def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
-    P = adjust(rows, divs)
+def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs, bench="0050", pre_adjusted=False, unit=""):
+    """pre_adjusted=True：價格已經是還原權值（美股 Adj Close），不用再調整（美股沒有漲跌幅限制，不能用跳空判斷減資）"""
+    adj = (lambda r, d: [(x["date"], x["open"], x["max"], x["min"], x["close"]) for x in r if x.get("close")]) if pre_adjusted else adjust
+    P = adj(rows, divs)
     if len(P) < 250:
         return "・5 年回測：上市不到 1 年，資料不夠，沒辦法回測"
-    B = adjust(bench_rows, bench_divs) if bench_rows else []
+    B = adj(bench_rows, bench_divs) if bench_rows else []
     start = (dt.date.fromisoformat(P[-1][0]) - dt.timedelta(days=int(365.25 * YEARS))).isoformat()
     W = [x for x in P if x[0] >= start]
     yrs = (dt.date.fromisoformat(W[-1][0]) - dt.date.fromisoformat(W[0][0])).days
@@ -155,7 +157,7 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
     dd, at = max_dd([x[4] for x in W])
     rets = [W[i][4] / W[i - 1][4] - 1 for i in range(1, len(W))]
     vol = st.pstdev(rets) * (245 ** 0.5) * 100
-    L = ["・%d 年回測（%s～%s，含股利、已調整減資分割）：" % (round(yrs / 365.25), W[0][0], W[-1][0])]
+    L = ["・%d 年回測（%s～%s，含股利、已調整%s）：" % (round(yrs / 365.25), W[0][0], W[-1][0], "分割" if pre_adjusted else "減資分割")]
     bt = ""
     bcg = None
     if B:
@@ -163,20 +165,20 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
         if len(BW) > 200:
             bcg = cagr(BW[0][4], BW[-1][4], yrs)
             bdd, _ = max_dd([x[4] for x in BW])
-            bt = "；同期 0050 年化 %+.1f%%、最大跌幅 %.0f%%" % (bcg, bdd)
+            bt = "；同期 %s 年化 %+.1f%%、最大跌幅 %.0f%%" % (bench, bcg, bdd)
     L.append("　1. 買了一直抱著：總報酬 %+.0f%%（年化 %+.1f%%），中間最慘跌 %.0f%%（%s）%s" % (tot, cg, dd, W[at][0][:7] if at else "—", bt))
     L.append("　　每年：" + "、".join("%s %+.0f%%%s" % (y, r, note) for y, r, note in yearly(W)))
     tt, teq = trend_trades(W)
     if tt:
         win = sum(x[2] > 0 for x in tt) / len(tt) * 100
         L.append("　2. 季線順勢（站上季線買、跌破賣）：%d 次、勝率 %.0f%%、累計 %+.0f%%（一直抱著 %+.0f%%）" % (len(tt), win, teq, tot))
-    rt = rocket_trades(W, rev, inst)
+    rt = rocket_trades(W, rev, inst) if not pre_adjusted else None
     if rt:
         r = [x[2] for x in rt]
         L.append("　3. 飆股前兆規則：%d 次、勝率 %.0f%%、平均每次 %+.1f%%（最近：%s）" % (
             len(r), sum(x > 0 for x in r) / len(r) * 100, st.mean(r),
             "、".join("%s %+.0f%%" % (a[2:].replace("-", "/"), x) for a, _, x in rt[-3:])))
-    else:
+    elif rt is not None:
         L.append("　3. 飆股前兆規則：5 年內沒出現過")
     # 現在位置
     c = W[-1][4]
@@ -199,7 +201,7 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
     # 結論
     good = []
     if bcg is not None:
-        lt = "適合長抱" if cg > bcg and dd > -55 else "長抱報酬不如 0050" if cg <= bcg else "長抱賺得多但跌起來很兇"
+        lt = "適合長抱" if cg > bcg and dd > -55 else "長抱報酬不如 %s" % bench if cg <= bcg else "長抱賺得多但跌起來很兇"
     else:
         lt = "適合長抱" if cg > 8 and dd > -55 else "長抱報酬普通"
     good.append(lt)
@@ -215,8 +217,8 @@ def analyze(sid, name, rows, divs, rev, inst, bench_rows, bench_divs):
         tm = "現在在中間位置，%s" % ("趨勢向上（站上季線）" if c > m60 else "趨勢偏弱（跌破季線），等站回季線再買")
     LAST.clear()
     LAST.update({"long_ok": lt == "適合長抱", "trend_up": c > m60, "pos": pos,
-                 "summary": "%s，年化 %+.1f%%%s" % (lt, cg, "（0050 %+.1f%%）" % bcg if bcg is not None else "")})
-    L.append("　➜ 結論：%s；%s。年波動 %.0f%%（0050 約 20%%，越大代表漲跌越劇烈）" % ("，".join(good), tm, vol))
+                 "summary": "%s，年化 %+.1f%%%s" % (lt, cg, "（%s %+.1f%%）" % (bench, bcg) if bcg is not None else "")})
+    L.append("　➜ 結論：%s；%s。年波動 %.0f%%（%s 約 %d%%，越大代表漲跌越劇烈）" % ("，".join(good), tm, vol, bench, 20 if bench == "0050" else 17))
     return "\n".join(L)
 
 

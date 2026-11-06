@@ -44,6 +44,7 @@
 - **DMI／ADX**（`analysis.dmi`、`dmi_text`，算法和網頁版 `dmi()` 一樣）：+DI 多方力道、−DI 空方力道、ADX 趨勢強度（>25 有趨勢、<20 盤整）。個股分析技術面一行、持股提醒（−DI > +DI 且 ADX ≥25 走高＝空頭趨勢成形）；網頁版副圖「DMI」、條件「DMI 轉多」「ADX 趨勢變強」。
 - **模擬交易＋每日復盤**（`journal.py`，只發 Discord，結果存到私人專案 `journal_latest.txt`）：使用者每晚看完報告，至少挑 1 檔告訴 Claude 做模擬交易；Claude 記到私人 `sop_config.json` 的 `orders.list`（`sim: true`、`price` 限價、`qty`、`date` 下一個交易日、`why` 理由，可加 `stop`／`sell`／`half`）。隔天盤中碰到限價算成交；之後照 `exits.check` 模擬賣出（賣出→隔天開盤賣、減碼→賣一半）。每晚復盤每筆：比大盤／同產業強弱、損益與進場後最多賺賠、進場位置與追高、理由還在幾項、DMI／MACD、離停損目標多遠、結束的單學到什麼（記進 `lessons.json`）、累計勝率與期望值。使用者來復盤時先讀私人專案的 `journal_latest.txt` 再補充分析。
 - **加碼計畫監控**（`addwatch.py`，只發 Discord）：私人 `sop_config.json` 的 `add_plans`（例如 1605：27.5／25.6／24 分批 3／3／4 張）。每晚判斷階段（🔻下跌中＝不接刀、⏸打底盤整＝算已盤整幾天並和這檔過去盤整天數比、🚀起漲訊號＝ADX 從 20 以下回升＋DI 多方＋站上月線），列 8 項起漲前訊號（ADX、DI、月線、MACD、外資、投信、融資、千張大戶）、分批價位距離與要盯的新聞。
+- **美股**（`us.py`，只發 Discord，結果存到私人專案 `us_latest.txt`）：私人 `sop_config.json` 的 `us`（`budget_twd` 美股預算 10 萬台幣、`holdings` 持股與美元成本、`watch` 追蹤）。資料用 Yahoo Finance（含配息、分割；不佔 FinMind 額度），抓不到才用 FinMind USStockPrice。每晚報告附：大盤 VOO 位置、持股損益與殖利率、「跌深配息」候選前 5（殖利率、5 年都配息、股利沒被砍、離高點跌幅、RSI、5 年報酬、位階打分數）與分 3 批買幾股（每檔最多預算 30%）。查個股輸入英文代號（KO、MMM）就查美股，附 5 年回測（和 VOO 比）。
 - 每週主動搜尋新的選股策略，回測後提出來跟使用者討論；使用者同意後才加入每晚報告。
 
 ## 排程
