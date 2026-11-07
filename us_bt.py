@@ -63,13 +63,22 @@ def prices(t, years=YEARS + 1):
         if not c or not a:
             continue
         f = a / c  # 還原係數：開高低一起調整
-        out.append((dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d"), (q["open"][i] or c) * f, (q["high"][i] or c) * f,
+        out.append((dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%d"), (q["open"][i] or c) * f, (q["high"][i] or c) * f,
                     (q["low"][i] or c) * f, a, q["volume"][i] or 0))
     return out
 
 
 def cik_map():
-    r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=SEC_UA, timeout=30)
+    """SEC 要求請求要有聯絡資訊；可以在私人專案的 Secrets 設 SEC_USER_AGENT（例如「名字 email」）。依序試，第一個成功的就沿用"""
+    import os
+    cands = [os.environ.get("SEC_USER_AGENT", "").strip(), SEC_UA["User-Agent"], "TwStockScreener research-bot@users.noreply.github.com", us.UA["User-Agent"]]
+    for ua in [c for c in cands if c]:
+        r = requests.get("https://www.sec.gov/files/company_tickers.json", headers={**SEC_UA, "User-Agent": ua}, timeout=30)
+        log("SEC 代號對照：HTTP %d" % r.status_code)
+        if r.status_code == 200:
+            SEC_UA["User-Agent"] = ua
+            break
+        time.sleep(1)
     r.raise_for_status()
     return {v["ticker"].upper().replace(".", "-"): int(v["cik_str"]) for v in r.json().values()}
 
@@ -133,6 +142,8 @@ def series(facts, names, unit, kind):
 def fundamentals(cik):
     r = requests.get("https://data.sec.gov/api/xbrl/companyfacts/CIK%010d.json" % cik, headers=SEC_UA, timeout=60)
     if r.status_code != 200:
+        if r.status_code in (403, 429):
+            log("SEC 財報：HTTP %d" % r.status_code)
         return []
     f = r.json().get("facts") or {}
     eps = series(f, ["EarningsPerShareDiluted", "EarningsPerShareBasic"], "USD/shares", "flow")
