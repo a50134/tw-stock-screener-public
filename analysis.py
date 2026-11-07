@@ -413,6 +413,8 @@ def block(s, f, prof, row=None, hold=None):
     L = ["【%s %s】收 %s（今日 %s）" % (sid, name, px(f["close"]), fmt(f["chg1"]))]
     if row:
         L.append("・入選策略：%s｜健檢 %s %s 分" % ("、".join(row.get("strategies") or []), row.get("grade"), row.get("score")))
+        if "法人買超優勢" in (row.get("strategies") or []):
+            L.append("・出場方式（法人買超優勢）：跌 8% 停損，或外資／投信連續賣超 2 週（10 天）再賣；沒出現就續抱，讓獲利跑（回測勝率約 36%，但賺的時候平均賺很多）")
         if row.get("star"):
             L.append("・%s：近 5 天有 %d 個策略都選到（%s）；回測多個策略同時選到的勝率約 60%%～76%%，比單一策略高" % (
                 star(row).strip(), len(row.get("res") or []), "、".join(row.get("res") or [])))

@@ -1673,6 +1673,8 @@ if(!S.v23){S.v23=1;const R=(k,p)=>Object.assign(C(k,p),{req:true});if(!S.strateg
 /* 2026-11：中長線籌碼集中潛力股（使用者的準則：千張大戶比例週增 8% 以上＋持有張數週增 1,000 張以上＋排除 ETF／ETN／存託憑證）；千張大戶策略加「股東人數減少」當加分 */
 if(!S.v24){S.v24=1;if(!S.strategies.some(x=>x.id==='s25'))S.strategies.push({id:'s25',name:'中長線籌碼集中潛力股',mode:'all',k:2,conds:[C('bigRel',{n:1,x:8}),C('bigLots',{n:1,x:1000}),C('notFund')]});
  const s24=S.strategies.find(x=>x.id==='s24');if(s24&&!s24.conds.some(c=>c.type==='holdersDown'))s24.conds.push(C('holdersDown',{n:1,x:5}))}
+/* 2026-11：法人買超優勢（外資不含自營商月買超占量 >8%＋投信 >2%＋外資當日大買＋外資投信 3 個月同步買超＋只看上市；出場用「跌 8% 停損或法人連賣 2 週」：回測平均 +15.7%） */
+if(!S.v25){S.v25=1;if(!S.strategies.some(x=>x.id==='s26'))S.strategies.push({id:'s26',name:'法人買超優勢',mode:'all',k:2,conds:[C('fxRatio',{n:20,x:8}),C('instRatio',{party:'it',n:20,x:2}),C('fiLadder'),C('instBoth',{n:60}),C('notFund'),C('listed')]})}
 S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
 const save=()=>store.set(SK,S);
 const strat=()=>S.strategies.find(x=>x.id===S.cur)||S.strategies[0];
