@@ -118,13 +118,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const ids = [...d.querySelector('#sopStrat').options].map((o) => o.value).filter((x) => !skip.has(x));
     const rec = w.__recent(ids, 5), nm2id = {};
     for (const [k, v] of Object.entries(rec)) nm2id[v.name] = k;
-    const STRONG = [['s20', 's21'], ['s19', 's21'], ['s19', 's9'], ['s21', 's9']];
+    const STRONG = [['s19', 's21'], ['s19', 's9'], ['s21', 's9']];
+    // 回測同時選到反而變差的組合，不算共振（CAN SLIM＋追強勢 47%～50%、強勢回檔＋ETF 33%、林區＋三率三升 25%）
+    const BAD = [['s20', 's19'], ['s20', 's21'], ['s21', 's15'], ['s13', 's11'], ['s15', 's9']];
     for (const r of plan.rows) {
       const got = new Set((r.strategies || []).map((n) => nm2id[n]).filter(Boolean));
       for (const [k, v] of Object.entries(rec)) if (v.ids.includes(r.id)) got.add(k);
       const ks = [...got].sort();
       r.res = ks.map((k) => rec[k].name);
-      r.star = ks.length < 2 ? 0 : STRONG.some(([a, b]) => got.has(a) && got.has(b)) || ks.length >= 3 ? 2 : 1;
+      const good = ks.some((a, i) => ks.slice(i + 1).some((b) => !BAD.some(([x, y]) => (x === a && y === b) || (x === b && y === a))));
+      r.star = !good ? 0 : STRONG.some(([a, b]) => got.has(a) && got.has(b)) || ks.length >= 3 ? 2 : 1;
     }
     console.log('多策略共振：' + plan.rows.filter((r) => r.star).length + ' 檔（強共振 ' + plan.rows.filter((r) => r.star === 2).length + ' 檔）');
   } catch (e) { console.error('共振標記失敗，略過：', e.message); }
