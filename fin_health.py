@@ -114,12 +114,56 @@ def check(s, day=None, debt_max=60):
     return ok, "%s（%s 季報）：%s" % (head, L["q"], "、".join(bad + good + warn) or "—")
 
 
+def divs(rows):
+    """股利公告 → [[公告日, 現金股利（元）, 除息日], ...]（同一天公告多筆就加總）"""
+    out = {}
+    for d in rows:
+        cash = (d.get("CashEarningsDistribution") or 0) + (d.get("CashStatutorySurplus") or 0)
+        if cash <= 0:
+            continue
+        a = (d.get("AnnouncementDate") or d.get("date") or "")[:10]
+        if not a:
+            continue
+        x = out.setdefault(a, [a, 0.0, d.get("CashExDividendTradingDate") or ""])
+        x[1] = round(x[1] + cash, 4)
+    return sorted(out.values())
+
+
+def merge_div(path, src="fin_div.json"):
+    """股利公告填進 data.json 每檔的 dv"""
+    if not os.path.exists(src):
+        return 0
+    dv = json.load(open(src, encoding="utf-8"))
+    d = json.load(open(path, encoding="utf-8"))
+    n = 0
+    for s in d["stocks"]:
+        if dv.get(s["id"]):
+            s["dv"] = dv[s["id"]]
+            n += 1
+    json.dump(d, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    return n
+
+
+def main_div(ids, start):
+    res = {}
+    for k, sid in enumerate(ids, 1):
+        print("股利 %d/%d" % (k, len(ids)), flush=True)
+        res[sid] = divs(F.get("TaiwanStockDividend", sid, start))
+        time.sleep(0.3)
+    json.dump(res, open("fin_div.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    print("股利公告：%d 檔有資料" % sum(1 for v in res.values() if v))
+
+
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else "data.json"
     start = sys.argv[sys.argv.index("--start") + 1] if "--start" in sys.argv else "2023-01-01"
     F.TOKEN = (os.environ.get("FINMIND_TOKEN") or "").strip()
     d = json.load(open(src, encoding="utf-8"))
     ids = [s["id"] for s in d["stocks"] if not s["id"].startswith("00")]
+    if "--div" in sys.argv:
+        main_div(ids, "2021-01-01")
+    if "--div-only" in sys.argv:
+        return
     res, tc, tb = {}, Counter(), Counter()
     for k, sid in enumerate(ids, 1):
         print("抓取 %d/%d" % (k, len(ids)), flush=True)  # 不印代號
