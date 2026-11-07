@@ -278,6 +278,14 @@ def main():
                 log("美股段落已加入報告（只給自己）")
         except Exception as e:
             log("美股段落失敗，略過：", e)
+        try:  # 潛力成長股：財報挑名單（存 growth_pool.json，私人專案同步）→ VCP／短線買訊／網球型態抓買點 → 季線／ATR 抓賣點
+            import growth
+            gtext, _ = growth.nightly(ld("data.json"), ld("stock_profiles.json", {}))
+            if gtext:
+                add(["report_discord.txt"], gtext)
+                log("潛力成長股追蹤已加入報告")
+        except Exception as e:
+            log("潛力成長股追蹤失敗，略過：", e)
         try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
             import addwatch
             atext = addwatch.nightly(ld("data.json"), cfg, ld("stock_profiles.json", {}))
