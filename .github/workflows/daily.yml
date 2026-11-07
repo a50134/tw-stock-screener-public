@@ -66,7 +66,7 @@ jobs:
           git show FETCH_HEAD:tdcc_hist.json > tdcc_hist.json 2>/dev/null || { rm -f tdcc_hist.json; echo "還沒有集保大戶歷史，今晚開始累積"; }
           git show FETCH_HEAD:insider_hist.json > insider_hist.json 2>/dev/null || { rm -f insider_hist.json; echo "還沒有內部人申報歷史，今晚開始累積"; }
           python market.py --days 10 || echo "全市場行情更新失敗，沿用上一份"
-          (git fetch -q --depth 1 origin fin-data && git show FETCH_HEAD:fin_health.json > fin_health.json) || echo "還沒有財報健檢資料"
+          (git fetch -q --depth 1 origin fin-data && git show FETCH_HEAD:fin_health.json > fin_health.json && (git show FETCH_HEAD:fin_div.json > fin_div.json || true)) || echo "還沒有財報健檢資料"
       - run: python daily_run.py ${{ inputs.force && '--force' || '' }} ${{ inputs.dry && '--dry-run' || '' }}
       - name: 保存隔天早上開盤檢查的名單
         if: success() && !inputs.dry

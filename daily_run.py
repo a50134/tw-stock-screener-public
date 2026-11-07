@@ -198,6 +198,7 @@ def main():
         try:  # 財報健檢（現金流量、負債比；fin_health.yml 每季更新、存在 fin-data 分支）
             import fin_health
             log("財報健檢資料：%d 檔" % fin_health.merge(os.path.join(DIR, "data.json")))
+            log("股利公告：%d 檔" % fin_health.merge_div(os.path.join(DIR, "data.json")))
         except Exception as e:
             log("財報健檢資料失敗，略過：", e)
         run(["node", "daily_report.js", "data.json", "sop_config.json"], timeout=900)

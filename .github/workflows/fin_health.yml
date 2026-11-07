@@ -2,10 +2,15 @@ name: 財報健檢資料（現金流量、資產負債）
 
 # 手動執行（之後每季財報公布後自動更新：5/20、8/20、11/20、3/31 後）：抓近 3 年現金流量表、資產負債表，存到 fin-data 分支
 on:
+  workflow_dispatch:
+    inputs:
+      div_only:
+        description: "只更新股利公告（不重抓財報）"
+        type: boolean
+        default: false
   schedule:
     - cron: '41 2 20 5,8,11 *'
     - cron: '41 2 5 4 *'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,14 +31,17 @@ jobs:
       - run: pip install -q requests
       - name: 取得最新選股清單
         run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data_src.json
-      - run: python fin_health.py data_src.json --start 2023-01-01
+      - name: 取現有的財報健檢資料（只更新股利時保留）
+        run: |
+          git fetch -q --depth 1 origin fin-data && { git show FETCH_HEAD:fin_health.json > fin_health.json; git show FETCH_HEAD:fin_types.json > fin_types.json; } || echo "還沒有 fin-data"
+      - run: python fin_health.py data_src.json --start 2023-01-01 --div ${{ inputs.div_only && '--div-only' || '' }}
       - name: 存到 fin-data 分支
         run: |
-          mkdir -p /tmp/out && cp fin_health.json fin_types.json /tmp/out/
+          mkdir -p /tmp/out && cp fin_health.json fin_types.json /tmp/out/ 2>/dev/null; cp fin_div.json /tmp/out/ 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -q --orphan fin-data
           git rm -rq --cached . && rm -rf ./*
-          cp /tmp/out/* . && git add fin_health.json fin_types.json
+          cp /tmp/out/* . && git add *.json
           git commit -q -m "更新財報健檢資料"
           git push -q -f origin fin-data
