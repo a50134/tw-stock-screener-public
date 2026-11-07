@@ -239,7 +239,41 @@ def report(cfg):
             L.append("・%s %s：%s（今天 %+.1f%%）｜%s｜5 年年化 %s、最慘跌 %.0f%%｜➜ %s" % (
                 t, names.get(t, ""), _p(x["c"]), x["chg"], "、".join(why) or "—", "%+.1f%%" % x["cagr"] if x["cagr"] is not None else "—", x["mdd"], txt))
         L.append("規則：殖利率、5 年都配息、離高點跌幅、RSI 超跌、5 年報酬、位階打分數；股利被砍的不列。想買哪檔先用「查美股」看 5 年回測")
+    w = watch_text()
+    if w:
+        L.append("")
+        L.append(w)
     L.append("依 Yahoo Finance／FinMind 公開資料與固定規則整理，不是投資建議；美股還有約 30% 股利稅（美國先扣）與換匯成本。")
+    return "\n".join(L)
+
+
+def watch_text(path=None):
+    """美股穩健動能觀察名單（us_bt.py 每週更新，存在私人專案 us_watch.json）
+    回測（標普 500、近 5 年）：抱 20 天勝率 54%、平均 +1.5%；抱 60 天平均 +5.3%（隨便買 +2.8%）"""
+    for p in ([path] if path else [os.path.join(DIR, "priv", "us_watch.json"), os.path.join(DIR, "us_watch.json")]):
+        if p and os.path.exists(p):
+            try:
+                W = json.load(open(p, encoding="utf-8"))
+            except Exception:
+                return ""
+            break
+    else:
+        return ""
+    rows = [x for x in W.get("list") or [] if x.get("health") is not False]
+    if not rows:
+        return ""
+    rows.sort(key=lambda x: -x["r6m"])
+    L = ["【美股穩健動能觀察名單】（%s，標普 500 裡近 6 個月「漲得多又走得穩」前 15 名，已刪掉財報健檢沒過的）" % W.get("asOf", "")]
+    for x in rows:
+        if x["bias"] > 8:
+            act = "離月線 %+.0f%%，不追高，等回到月線 %s 附近" % (x["bias"], _p(x["ma20"]))
+        elif x["close"] < x["ma60"]:
+            act = "跌破季線 %s，先觀望" % _p(x["ma60"])
+        else:
+            act = "靠近月線，可以小量分批（停損：跌破季線 %s）" % _p(x["ma60"])
+        hl = ("營業現金流 %+.0f 億美元、負債比 %.0f%%" % (x["ocf"] / 1e8, x["debt"])) if x.get("ocf") is not None and x.get("debt") is not None else "財報資料不足"
+        L.append("・%s %s：%s，近 6 個月 %+.0f%%｜%s｜➜ %s" % (x["t"], x["name"], _p(x["close"]), x["r6m"], hl, act))
+    L.append("回測：抱 60 天平均 +5.3%（隨便買 +2.8%），但贏不了一直抱 VOO；當觀察名單用，主力還是大盤 ETF＋配息股")
     return "\n".join(L)
 
 
