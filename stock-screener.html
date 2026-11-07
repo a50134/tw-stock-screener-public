@@ -1646,6 +1646,8 @@ if(!S.v18){S.v18=1;const s9=S.strategies.find(x=>x.id==='s9');if(s9&&!s9.conds.s
 if(!S.v19){S.v19=1;const n20={id:'s20',name:'CAN SLIM 成長股',mode:'all',k:2,conds:[C('epsQn',{n:2,x:25}),C('epsYears',{n:2,x:25}),C('revQn',{n:2,x:25}),C('roeTTM',{x:17}),C('epsMin',{x:0.75}),C('instTrend',{a:20,b:60}),C('avgVol',{n:20,x:500})]};
  const i=S.strategies.findIndex(x=>x.id==='s20');if(i>=0)S.strategies[i]=n20;else S.strategies.push(n20);
  const s9=S.strategies.find(x=>x.id==='s9');if(s9){s9.name='投信作帳＋穩健動能／強勢回檔';if(!s9.conds.some(c=>c.type==='alsoPick'))s9.conds.push(C('alsoPick',{a:'s19',b:'s21',n:5}))}}
+/* 2026-11：財報健檢加進 CAN SLIM、強勢回檔、穩健動能（回測都變好）；三率三升、彼得林區加了反而變差，不加 */
+if(!S.v20){S.v20=1;const R=(k,p)=>Object.assign(C(k,p),{req:true});['s20','s21','s19'].forEach(id=>{const st=S.strategies.find(x=>x.id===id);if(st&&!st.conds.some(c=>c.type==='finHealth'))st.conds.push(R('finHealth',{x:60}))})}
 S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
 const save=()=>store.set(SK,S);
 const strat=()=>S.strategies.find(x=>x.id===S.cur)||S.strategies[0];
