@@ -1631,6 +1631,8 @@ if(!S.v3){S.v3=1;S.strategies.push({id:'s7',name:'NEURAL NETWORK 原版',mode:'a
 if(!S.v2){S.v2=1;S.strategies.push(
  {id:'s5',name:'三率三升＋土洋合作',mode:'all',k:2,conds:[C('threeUp'),C('instBoth',{n:5}),C('maUp',{n:20,k:3})]},
  {id:'s6',name:'低檔轉強',mode:'atLeast',k:3,conds:[C('nearLow',{n:60,x:8}),C('kdCross',{k:3,x:40}),C('macdCross',{k:5}),C('instTurn',{party:'fi',n:5}),C('marginDown',{n:10,x:2})]})}
+/* 2026-11：投信季底作帳改版（回測：單獨勝率 54%、平均 +4.3%；和「穩健動能＋外資買超」同時選到 76%、+12.4%，和「強勢股回檔月線量縮」同時選到 92%） */
+if(!S.v17){S.v17=1;const n9={id:'s9',name:'投信季底作帳（買超排行＋月線上揚）',mode:'all',k:2,conds:[C('quarterEnd',{m:3,n:30}),C('instRank',{party:'it',n:10,k:20}),C('maAbove',{n:20}),C('maUp',{n:20,k:1}),C('avgVol',{n:20,x:300})]};const i=S.strategies.findIndex(x=>x.id==='s9');if(i>=0)S.strategies[i]=n9;else S.strategies.push(n9)}
 S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
 const save=()=>store.set(SK,S);
 const strat=()=>S.strategies.find(x=>x.id===S.cur)||S.strategies[0];
@@ -2475,6 +2477,8 @@ function ordText(list,disc){
   if(E.holds.length)L.push(`合計：今天 ${ordMoney(E.today)}｜未實現 ${ordMoney(E.unreal)}｜已實現 ${ordMoney(E.real)}`);
   L.push('（用整股日K估算，實際成交以券商回報為準）');return L.join('\n');
 }
+/* 每晚報告用：近 back 個交易日，每個策略（不含 SOP 篩選）選到哪些股票，用來標「多策略共振」 */
+window.__recent=(ids,back)=>{const o={};for(const id of ids){const st=S.strategies.find(x=>x.id===id);if(!st)continue;const act=st.conds.filter(c=>c.on!==false),need=st.mode==='all'?act.length:Math.min(Math.max(1,st.k),act.length);if(!act.length)continue;const m={};for(let t=Math.max(65,T-back+1);t<=T;t++)evalAt(t,act,need).forEach(x=>{if(x.hit)m[x.s.id]=1});o[id]={name:st.name,ids:Object.keys(m)}}return o};
 window.__ordersText=(list,disc)=>ordText(list,disc??S.calc.disc);
 function renderOrders(){
   const disc=S.calc.disc,E=ordEval(S.orders,disc);$('#ordDate').textContent=`資料到 ${D[LAST]}`;

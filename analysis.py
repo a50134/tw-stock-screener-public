@@ -315,6 +315,16 @@ PULLBACK = "強勢股回檔月線量縮"  # 大盤回檔時「碰月線」常是
 CHASE = (BREAKOUT, MOMENTUM, PULLBACK)
 
 
+def star(r):
+    """多策略共振標記（daily_report.js 算的 r["star"]）：2＝強共振、1＝共振、0＝只有 1 個策略"""
+    return {2: "⭐⭐強共振 ", 1: "⭐共振 "}.get((r or {}).get("star") or 0, "")
+
+
+def rank(r):
+    """排序：共振的排前面，再看健檢分數"""
+    return (-((r or {}).get("star") or 0), -((r or {}).get("score") or 0))
+
+
 def market_weak(plan, hist_path=None):
     """大盤是否偏弱：國際風險高，或 0050 收盤跌破 60 日均線（季線）。回傳原因（空字串＝不弱）"""
     why = []
@@ -402,6 +412,9 @@ def block(s, f, prof, row=None, hold=None):
     L = ["【%s %s】收 %s（今日 %s）" % (sid, name, px(f["close"]), fmt(f["chg1"]))]
     if row:
         L.append("・入選策略：%s｜健檢 %s %s 分" % ("、".join(row.get("strategies") or []), row.get("grade"), row.get("score")))
+        if row.get("star"):
+            L.append("・%s：近 5 天有 %d 個策略都選到（%s）；回測多個策略同時選到的勝率約 60%%～76%%，比單一策略高" % (
+                star(row).strip(), len(row.get("res") or []), "、".join(row.get("res") or [])))
     if hold:
         L.append("・你的持股：%s" % hold)
     if prof:
@@ -523,7 +536,7 @@ def build(data, cfg, plan, profiles, top=6):
         if o.get("done") and not str(o.get("side", "b")).startswith("s"):
             held.setdefault(str(o["id"]), []).append("%s 買進 %s × %s 股" % (o.get("date", ""), o.get("price"), o.get("qty")))
     rows = [r for r in plan.get("rows", []) if not str(r["id"]).startswith("00")]
-    rows.sort(key=lambda r: (r.get("state") != "ok", -(r.get("score") or 0)))
+    rows.sort(key=lambda r: (r.get("state") != "ok",) + rank(r))
     pick = rows[:top]
     rmap = {r["id"]: r for r in plan.get("rows", [])}
     ids = list(dict.fromkeys(list(held) + [r["id"] for r in pick]))

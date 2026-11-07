@@ -106,7 +106,7 @@ def table(d, y, rows, measure=False):
     for r in rows:
         ok, hold = r.get("state") == "ok", r.get("state") == "hold"
         d.rectangle([PAD, y, W - PAD, y + R], fill=(232, 245, 240) if ok else (240, 242, 244) if hold else (253, 246, 227))
-        vals = ["%s %s" % (r["id"], r["name"]), analysis.px(r["prev"]), "可買" if ok else "觀望" if hold else "等拉回",
+        vals = ["%s%s %s" % ("⭐" * ((r.get("star") or 0)), r["id"], r["name"]), analysis.px(r["prev"]), "可買" if ok else "觀望" if hold else "等拉回",
                 "%s～%s" % (analysis.px(r["lo"]), analysis.px(r["hi"])), analysis.px(r["stop"]), analysis.px(r["t1"]) if r.get("t1") else "—"]
         x = PAD
         for (n, w), v in zip(TCOLS, vals):
@@ -169,7 +169,7 @@ def build(plan, data, profiles, n_img=4, top_ok=8, top_wait=5, notes=None):
         return []
     ok, wait, rest = brief.pick(plan, top_ok, top_wait)
     hold = [r for r in allrows if r.get("state") == "hold"]
-    key = lambda r: -(r.get("score") or 0)
+    key = analysis.rank
     table_rows = [r for r in ok + wait + sorted(rest, key=lambda r: (r.get("state") != "ok", key(r))) + sorted(hold, key=key) if r["id"] in by]
     full = [r for r in ok + wait if r["id"] in by and not str(r["id"]).startswith("00")]
     mini = [r for r in table_rows if r not in full]

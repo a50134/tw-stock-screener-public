@@ -112,6 +112,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const disc = cfg.orders && cfg.orders.disc != null ? +cfg.orders.disc : undefined;
   fs.writeFileSync(path.join(dir, 'report_orders.txt'), olist.length ? w.__ordersText(olist, disc) : '', 'utf8');
   plan.rows = Object.values(plan.rows);
+  // 多策略共振：近 5 個交易日內有 2 個以上策略選到同一檔（回測：任 2 個同時選到勝率約 60%～76%，比單一策略高）
+  // 特別強的組合（回測勝率 76% 以上）標 ⭐⭐
+  try {
+    const ids = [...d.querySelector('#sopStrat').options].map((o) => o.value).filter((x) => !skip.has(x));
+    const rec = w.__recent(ids, 5), nm2id = {};
+    for (const [k, v] of Object.entries(rec)) nm2id[v.name] = k;
+    const STRONG = [['s20', 's21'], ['s19', 's21'], ['s19', 's9'], ['s21', 's9']];
+    for (const r of plan.rows) {
+      const got = new Set((r.strategies || []).map((n) => nm2id[n]).filter(Boolean));
+      for (const [k, v] of Object.entries(rec)) if (v.ids.includes(r.id)) got.add(k);
+      const ks = [...got].sort();
+      r.res = ks.map((k) => rec[k].name);
+      r.star = ks.length < 2 ? 0 : STRONG.some(([a, b]) => got.has(a) && got.has(b)) || ks.length >= 3 ? 2 : 1;
+    }
+    console.log('多策略共振：' + plan.rows.filter((r) => r.star).length + ' 檔（強共振 ' + plan.rows.filter((r) => r.star === 2).length + ' 檔）');
+  } catch (e) { console.error('共振標記失敗，略過：', e.message); }
   fs.writeFileSync(path.join(dir, 'sop_plan.json'), JSON.stringify(plan, null, 1), 'utf8');
   console.log('已產生報告：' + JSON.stringify(out) + '，開盤檢查名單 ' + plan.rows.length + ' 檔，資料日 ' + d.querySelector('#sopDate').textContent);
   process.exit(0);

@@ -24,14 +24,14 @@ def build(data, cfg, plan, profiles, private=True):
     by = {s["id"]: s for s in data["stocks"]}
     t = len(data["dates"]) - 1
     rows = [r for r in plan.get("rows", []) if r.get("lo") and r.get("stop") and r["id"] in by]
-    key = lambda r: -(r.get("score") or 0)
+    key = analysis.rank
     ok = sorted([r for r in rows if r.get("state") == "ok"], key=key)
     wait = sorted([r for r in rows if r.get("state") != "ok"], key=key)
     lab = lambda r, d: "⚪ 先觀望" if r.get("state") == "hold" else d
     R = {"date": data["asOf"], "risk": plan.get("risk", "—"), "count": len(rows), "summary": [], "sections": []}
     for grp, label in ((ok, "🟢 可買"), (wait, "🟡 等拉回")):
         for r in grp:
-            R["summary"].append({"id": r["id"], "name": r["name"], "close": analysis.px(r["prev"]), "act": lab(r, label),
+            R["summary"].append({"id": r["id"], "name": analysis.star(r) + r["name"], "close": analysis.px(r["prev"]), "act": lab(r, label),
                                  "zone": "%s～%s" % (analysis.px(r["lo"]), analysis.px(r["hi"])), "stop": analysis.px(r["stop"]),
                                  "t1": analysis.px(r["t1"]) if r.get("t1") else "—", "grade": "%s %s" % (r.get("grade", ""), r.get("score", "")),
                                  "strat": "、".join(r.get("strategies") or [])})

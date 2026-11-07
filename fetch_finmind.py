@@ -120,8 +120,8 @@ def pick(d, *names):
     return None
 
 
-def quarters(fin, bal):
-    """整理季財報：單季 EPS、毛利率、營益率、淨利率、ROE（%）。"""
+def quarters(fin, bal, roe_old=None):
+    """整理季財報：單季 EPS、毛利率、營益率、淨利率、ROE（%）。沒抓資產負債表時沿用上一份的 ROE（roe_old）"""
     by = {}
     for d in fin:
         by.setdefault(d["date"], {})[d["type"]] = d["value"]
@@ -141,12 +141,14 @@ def quarters(fin, bal):
         eps = pick(x, "EPS")
         e = eq.get(date, {})
         equity = pick(e, "EquityAttributableToOwnersOfParent", "Equity", "TotalEquity")
+        if equity is None and pick(e, "TotalAssets") is not None and pick(e, "Liabilities", "TotalLiabilities") is not None:
+            equity = pick(e, "TotalAssets") - pick(e, "Liabilities", "TotalLiabilities")
         pct = lambda a: round(a / rev * 100, 2) if (a is not None and rev) else None
         out.append({
             "q": "%dQ%d" % (y, m // 3),
             "eps": round(eps, 2) if eps is not None else None,
             "gm": pct(gp), "om": pct(op), "nm": pct(ni),
-            "roe": round(ni / equity * 100, 2) if (ni is not None and equity) else None,
+            "roe": round(ni / equity * 100, 2) if (ni is not None and equity) else (roe_old or {}).get("%dQ%d" % (y, m // 3)),
         })
     return [q for q in out if q["eps"] is not None]
 
@@ -288,12 +290,21 @@ def main():
             "margin": get("TaiwanStockMarginPurchaseShortSale", sid, start_px),
             "rev": [] if etf or keep_rev else get("TaiwanStockMonthRevenue", sid, start_rev),
             "fin": [] if etf or keep_fin else get("TaiwanStockFinancialStatements", sid, start_rev),
-            "bal": [] if lite else get("TaiwanStockBalanceSheet", sid, start_rev),
+            "bal": [],
             "per": [] if etf else get("TaiwanStockPER", sid, start_per),
             "hs": get("TaiwanStockHoldingSharesPer", sid, start_px) if HS_OK[0] and not lite else [],
             "dt": [] if lite else get("TaiwanStockDayTrading", sid, start_px),
             "news": [] if lite else get("TaiwanStockNews", sid, start_news),
         }
+        # 資產負債表（算 ROE 用）：只有財報出新的一季、或上一份還沒有 ROE 時才抓（--lite 也抓），平常沿用
+        if not etf and r["fin"]:
+            qs = sorted(d["date"] for d in r["fin"] if d["date"][5:7] in ("03", "06", "09", "12"))
+            oq = old.get("q") or []
+            newest = "%sQ%d" % (qs[-1][:4], int(qs[-1][5:7]) // 3) if qs else None
+            if not lite or not oq or oq[-1]["q"] != newest or not any(x.get("roe") is not None for x in oq):
+                r["bal"] = get("TaiwanStockBalanceSheet", sid, start_rev)
+            else:
+                r["roe_cached"] = {x["q"]: x.get("roe") for x in oq}
         if not r["hs"] and HS_OK[0] and not lite:
             HS_OK[0] = False
             print("  （帳號等級抓不到集保持股分級，其餘股票略過這項）")
@@ -392,7 +403,7 @@ def main():
                      for d in sorted(r["news"], key=lambda x: str(x.get("date", "")), reverse=True)[:60]
                      if d.get("title")],
             "rev": revs,
-            "q": r.get("q_cached") or quarters(r["fin"], r["bal"]),
+            "q": r.get("q_cached") or quarters(r["fin"], r["bal"], r.get("roe_cached")),
         })
 
     print("抓取國際新聞")
