@@ -115,17 +115,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // 多策略共振：近 5 個交易日內有 2 個以上策略選到同一檔（回測：任 2 個同時選到勝率約 60%～76%，比單一策略高）
   // 特別強的組合（回測勝率 76% 以上）標 ⭐⭐
   try {
-    const ids = [...d.querySelector('#sopStrat').options].map((o) => o.value).filter((x) => !skip.has(x));
+    // 背景策略：已刪除、不單獨推薦，但和特定策略同時選到時特別準（回測），只拿來標 ⭐⭐
+    const HIDDEN = { s3: 's20', s7: 's19', s5: 's21' };  // 量價突破＋CAN SLIM 85%、NEURAL NETWORK＋穩健動能 69%、三率三升土洋合作＋強勢回檔 67%
+    const ids = [...d.querySelector('#sopStrat').options].map((o) => o.value).filter((x) => !skip.has(x) || HIDDEN[x]);
     const rec = w.__recent(ids, 5), nm2id = {};
     for (const [k, v] of Object.entries(rec)) nm2id[v.name] = k;
-    const STRONG = [['s19', 's21'], ['s19', 's9'], ['s21', 's9']];
+    const STRONG = [['s19', 's21'], ['s19', 's9'], ['s21', 's9'], ...Object.entries(HIDDEN)];
     // 回測同時選到反而變差的組合，不算共振（CAN SLIM＋追強勢 47%～50%、強勢回檔＋ETF 33%、林區＋三率三升 25%）
     const BAD = [['s20', 's19'], ['s20', 's21'], ['s21', 's15'], ['s13', 's11'], ['s15', 's9']];
     for (const r of plan.rows) {
       const got = new Set((r.strategies || []).map((n) => nm2id[n]).filter(Boolean));
       for (const [k, v] of Object.entries(rec)) if (v.ids.includes(r.id)) got.add(k);
+      for (const [h, p] of Object.entries(HIDDEN)) if (got.has(h) && !got.has(p)) got.delete(h);  // 背景策略只在和它的搭檔一起選到時才算
       const ks = [...got].sort();
-      r.res = ks.map((k) => rec[k].name);
+      r.res = ks.map((k) => rec[k].name + (HIDDEN[k] ? '（背景）' : ''));
       const good = ks.some((a, i) => ks.slice(i + 1).some((b) => !BAD.some(([x, y]) => (x === a && y === b) || (x === b && y === a))));
       r.star = !good ? 0 : STRONG.some(([a, b]) => got.has(a) && got.has(b)) || ks.length >= 3 ? 2 : 1;
     }
