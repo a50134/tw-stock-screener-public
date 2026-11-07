@@ -27,6 +27,7 @@ import us
 
 SEC_UA = {"User-Agent": "tw-stock-screener research (github.com/a50134/tw-stock-screener-public)", "Accept-Encoding": "gzip, deflate"}
 COST = 0.3
+NAMES = {}
 YEARS = 5
 
 
@@ -43,7 +44,10 @@ def sp500():
         for row in tb.split("<tr")[2:]:
             m = re.search(r"<td[^>]*>\s*<a[^>]*>([A-Z.\-]+)</a>", row)
             if m:
-                out.append(m.group(1).replace(".", "-"))
+                t = m.group(1).replace(".", "-")
+                n = re.findall(r"<a[^>]*>([^<]+)</a>", row)
+                NAMES[t] = n[1] if len(n) > 1 else t
+                out.append(t)
         return out
     except Exception as e:
         log("標普 500 名單抓取失敗：", type(e).__name__)
@@ -51,7 +55,7 @@ def sp500():
 
 
 def prices(t, years=YEARS + 1):
-    url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%dy&interval=1d&includeAdjustedClose=true" % (t, years)
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%dy&interval=1d&events=div%%2Csplits&includeAdjustedClose=true" % (t, years)
     r = requests.get(url, headers=us.UA, timeout=30)
     r.raise_for_status()
     res = r.json()["chart"]["result"][0]
@@ -64,8 +68,9 @@ def prices(t, years=YEARS + 1):
             continue
         f = a / c  # 還原係數：開高低一起調整
         out.append((dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%d"), (q["open"][i] or c) * f, (q["high"][i] or c) * f,
-                    (q["low"][i] or c) * f, a, q["volume"][i] or 0))
-    return out
+                    (q["low"][i] or c) * f, a, q["volume"][i] or 0, c))  # 最後一個是當時股價（算本益比、殖利率用）
+    divs = sorted((dt.datetime.fromtimestamp(int(k), dt.timezone.utc).strftime("%Y-%m-%d"), v["amount"]) for k, v in ((res.get("events") or {}).get("dividends") or {}).items())
+    return out, divs
 
 
 def cik_map():
@@ -87,7 +92,7 @@ def days(a, b):
     return (dt.date.fromisoformat(b) - dt.date.fromisoformat(a)).days
 
 
-def series(facts, names, unit, kind):
+def series(facts, names, unit, kind, restate=False):
     """kind: 'flow'（損益：單季）、'ytd'（現金流：累計→單季）、'inst'（資產負債：期末）→ {期末日: (數值, 申報日)}"""
     for nm in names:
         u = (((facts.get("us-gaap") or {}).get(nm) or {}).get("units") or {}).get(unit)
@@ -109,13 +114,21 @@ def series(facts, names, unit, kind):
                 continue
             d = days(x["start"], x["end"])
             key = x["end"]
-            if 80 <= d <= 100 and (key not in q or x["filed"] < q[key][1]):
-                q[key] = (x["val"], x["filed"])
+            if 80 <= d <= 100:
+                if key not in q:
+                    q[key] = (x["val"], x["filed"], x["filed"])
+                else:
+                    v0, f0, c0 = q[key]  # 數值、第一次申報日、採用數值的申報日
+                    if restate:  # 用最後一次申報的數字（股票分割後重編過）
+                        q[key] = (x["val"] if x["filed"] > c0 else v0, min(f0, x["filed"]), max(c0, x["filed"]))
+                    else:
+                        q[key] = (x["val"] if x["filed"] < c0 else v0, min(f0, x["filed"]), min(c0, x["filed"]))
             if 350 <= d <= 380 and (key not in yr or x["filed"] < yr[key][1]):
                 yr[key] = (x["val"], x["filed"], x["start"])
             if kind == "ytd" and d >= 80:
                 if key not in ytd[x["start"]] or x["filed"] < ytd[x["start"]][key][1]:
                     ytd[x["start"]][key] = (x["val"], x["filed"])
+        q = {k: (v[0], v[1]) for k, v in q.items()}
         if kind == "ytd":  # 累計 → 單季：同一個起點，依期末日相減
             for s0, m in ytd.items():
                 prev = None
@@ -146,7 +159,9 @@ def fundamentals(cik):
             log("SEC 財報：HTTP %d" % r.status_code)
         return []
     f = r.json().get("facts") or {}
-    eps = series(f, ["EarningsPerShareDiluted", "EarningsPerShareBasic"], "USD/shares", "flow")
+    eps = series(f, ["EarningsPerShareDiluted", "EarningsPerShareBasic"], "USD/shares", "flow", restate=True)
+    gp = series(f, ["GrossProfit"], "USD", "flow")
+    op = series(f, ["OperatingIncomeLoss"], "USD", "flow")
     rev = series(f, ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax"], "USD", "flow")
     ni = series(f, ["NetIncomeLoss", "ProfitLoss"], "USD", "flow")
     ocf = series(f, ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"], "USD", "ytd")
@@ -158,7 +173,7 @@ def fundamentals(cik):
         if e < "2018-01-01":
             continue
         g = lambda m: m.get(e, (None, None))[0]
-        out.append({"end": e, "filed": eps[e][1], "eps": eps[e][0], "rev": g(rev), "ni": g(ni), "ocf": g(ocf), "eq": g(eq), "liab": g(liab), "assets": g(assets)})
+        out.append({"end": e, "filed": eps[e][1], "eps": eps[e][0], "rev": g(rev), "ni": g(ni), "ocf": g(ocf), "eq": g(eq), "liab": g(liab), "assets": g(assets), "gp": g(gp), "op": g(op)})
     return out
 
 
@@ -207,6 +222,136 @@ def ma(c, n, t):
     return sum(c[t - n + 1:t + 1]) / n
 
 
+def ema(x, n):
+    out, k, e = [None] * len(x), 2 / (n + 1), None
+    for i, v in enumerate(x):
+        if v is None:
+            continue
+        e = v if e is None else v * k + e * (1 - k)
+        out[i] = e
+    return out
+
+
+def indicators(h, l, c):
+    n = len(c)
+    first = next(i for i in range(n) if c[i] is not None)
+    days_ = list(range(first + 9, n))
+    # 日 KD：每天用前 9 天
+    Kd, Dd, k, d = [None] * n, [None] * n, 50.0, 50.0
+    for i in days_:
+        lo, hi = min(l[i - 8:i + 1]), max(h[i - 8:i + 1])
+        rsv = (c[i] - lo) / (hi - lo) * 100 if hi > lo else 50
+        k = k * 2 / 3 + rsv / 3
+        d = d * 2 / 3 + k / 3
+        Kd[i], Dd[i] = k, d
+    # 週 KD：每 5 個交易日一根（用最近 45 天的高低）
+    Kw, Dw, k, d = [None] * n, [None] * n, 50.0, 50.0
+    for i in range(first + 45, n):
+        if (i - first) % 5:
+            Kw[i], Dw[i] = Kw[i - 1], Dw[i - 1]
+            continue
+        lo, hi = min(l[i - 44:i + 1]), max(h[i - 44:i + 1])
+        rsv = (c[i] - lo) / (hi - lo) * 100 if hi > lo else 50
+        k = k * 2 / 3 + rsv / 3
+        d = d * 2 / 3 + k / 3
+        Kw[i], Dw[i] = k, d
+    e12, e26 = ema(c, 12), ema(c, 26)
+    dif = [a - b if a is not None and b is not None else None for a, b in zip(e12, e26)]
+    sg = ema(dif, 9)
+    bw, up = [None] * n, [None] * n
+    for i in range(first + 20, n):
+        w = c[i - 19:i + 1]
+        m = sum(w) / 20
+        sd = st.pstdev(w)
+        up[i], bw[i] = m + 2 * sd, 4 * sd / m * 100 if m else None
+    return {"K": Kd, "D": Dd, "Kw": Kw, "Dw": Dw, "dif": dif, "sig": sg, "bw": bw, "up": up}
+
+
+def cross(a, b, t, k):
+    """近 k 天內 a 由下往上穿過 b"""
+    return any(a[i] is not None and a[i - 1] is not None and b[i] is not None and b[i - 1] is not None and a[i - 1] <= b[i - 1] and a[i] > b[i]
+               for i in range(t - k + 1, t + 1))
+
+
+def extra(sig, t, t_, o, h, l, c, v, I, q, px, dv, B):
+    """之前在台股刪掉（或台股才有）的策略，改成美股版：沒有法人、融資資料的條件拿掉"""
+    m5, m20, m60 = ma(c, 5, t_), ma(c, 20, t_), ma(c, 60, t_)
+    vol20 = sum(v[t_ - 19:t_ + 1]) / 20
+    add = lambda nm: sig[nm][t].append(t_)
+    # s3 量價突破：創 60 日新高＋爆量 1.5 倍＋均線多頭排列
+    if c[t_] >= max(c[t_ - 59:t_ + 1]) and v[t_] > vol20 * 1.5 and m5 > m20 > m60:
+        add("量價突破（台股已刪）")
+    # s6 低檔轉強：離 60 日低點 8% 內＋KD 金叉（K<40）＋MACD 金叉
+    near_low = c[t_] <= min(c[t_ - 59:t_ + 1]) * 1.08
+    kdx = cross(I["K"], I["D"], t_, 3) and (I["K"][t_] or 99) < 40
+    mx = cross(I["dif"], I["sig"], t_, 5)
+    if near_low and kdx and mx:
+        add("低檔轉強（台股已刪）")
+    wk = cross(I["Kw"], I["Dw"], t_, 5)
+    if near_low and (kdx or mx) and wk:
+        add("低檔轉強＋週KD金叉（台股已刪）")
+    # s10 週 KD 金叉＋日 KD 向上
+    if cross(I["Kw"], I["Dw"], t_, 1) and I["K"][t_] is not None and I["K"][t_] > I["D"][t_] and (I["Kw"][t_] or 99) < 50:
+        add("週KD金叉＋日KD多方（台股已刪）")
+    # s8 布林開口：10 天內帶寬 < 5%＋上軌上翹 > 1%＋帶寬 < 20%
+    bw, up = I["bw"], I["up"]
+    if bw[t_] is not None and up[t_ - 1] and any(x is not None and x < 5 for x in bw[t_ - 9:t_ + 1]) and (up[t_] / up[t_ - 1] - 1) * 100 > 1 and bw[t_] < 20:
+        add("布林開口（台股已刪）")
+    # s16 跌深站回月線：比 60 日高點跌 20% 以上＋今天剛站回月線
+    if c[t_] <= max(c[t_ - 59:t_ + 1]) * 0.8 and c[t_] > m20 and c[t_ - 1] <= ma(c, 20, t_ - 1):
+        add("跌深站回月線（台股已刪）")
+    # 需要財報的
+    if len(q) >= 8 and px:
+        eps4 = [x["eps"] for x in q[-4:]]
+        if all(e is not None for e in eps4):
+            ttm = sum(eps4)
+            pe = px / ttm if ttm > 0 else None
+            dy = dv / px * 100
+            nis = [x["ni"] for x in q[-4:]]
+            eq = q[-1]["eq"]
+            roe = sum(nis) / eq * 100 if all(n_ is not None for n_ in nis) and eq and eq > 0 else None
+            sh = sum(nis) / ttm if all(n_ is not None for n_ in nis) and ttm else None  # 推算股數
+            pb = px / (eq / sh) if sh and eq and eq > 0 and sh > 0 else None
+            # s4 高殖利率低本益比：殖利率 > 4%、本益比 < 15、站上季線
+            if pe and dy > 4 and pe < 15 and c[t_] > m60:
+                add("高殖利率低本益比（台股已刪）")
+            # s14 價值股：近 4 季 EPS 都 > 0（必要）＋本益比<12、淨值比<1.5、殖利率>5%、ROE>10% 至少 3 項
+            if all(e > 0 for e in eps4) and sum([bool(pe and pe < 12), bool(pb and pb < 1.5), dy > 5, bool(roe and roe > 10)]) >= 3:
+                add("價值股（台股已刪）")
+            # s13 彼得林區：本益比 < 15、近四季 EPS > 0、近 2 年營收年複合成長 > 15%、EPS 年成長 > 10%
+            r0 = [x["rev"] for x in q[-4:]]
+            r2 = [x["rev"] for x in q[-12:-8]] if len(q) >= 12 else []
+            e1 = [x["eps"] for x in q[-8:-4]]
+            if pe and pe < 15 and ttm > 0 and len(r2) == 4 and all(r0) and all(r2) and all(e is not None for e in e1) and sum(e1) > 0:
+                cagr = ((sum(r0) / sum(r2)) ** 0.5 - 1) * 100
+                if cagr > 15 and (ttm / sum(e1) - 1) * 100 > 10:
+                    add("彼得林區（台股保留）")
+            # s11 三率三升（毛利率、營益率、淨利率都比上季高）＋月線上揚＋週KD金叉
+            a, b = q[-1], q[-2]
+            if all(x.get(k) is not None for x in (a, b) for k in ("gp", "op", "ni", "rev")) and a["rev"] and b["rev"]:
+                up3 = all(a[k] / a["rev"] > b[k] / b["rev"] for k in ("gp", "op", "ni"))
+                if up3 and m20 > ma(c, 20, t_ - 3) and wk:
+                    add("三率三升＋週KD金叉（台股保留）")
+
+
+def watchlist(S, vam, Q, D):
+    """美股穩健動能觀察名單（給每晚報告）：最新一天前 15 名＋財報健檢"""
+    T = len(D) - 1
+    out = []
+    for t in sorted(vam.get(T, [])):
+        o, h, l, c, v = S[t]
+        q = [x for x in (Q.get(t) or []) if x["filed"] <= D[T]]
+        _, B, _ = canslim(q) if q else (False, None, None)
+        oc = [x["ocf"] for x in q[-4:]]
+        ocf = sum(oc) if len(oc) == 4 and all(x is not None for x in oc) else None
+        debt = q[-1]["liab"] / q[-1]["assets"] * 100 if q and q[-1]["liab"] is not None and q[-1]["assets"] else None
+        m20, m60 = ma(c, 20, T), ma(c, 60, T)
+        out.append({"t": t, "name": NAMES.get(t) or us.UNIVERSE.get(t) or t, "close": round(c[T], 2), "r6m": round((c[T] / c[T - 126] - 1) * 100, 1),
+                    "ma20": round(m20, 2), "ma60": round(m60, 2), "bias": round((c[T] / m20 - 1) * 100, 1),
+                    "ocf": ocf, "debt": round(debt, 0) if debt is not None else None, "health": B})
+    return out
+
+
 def main():
     mx = int(sys.argv[sys.argv.index("--max") + 1]) if "--max" in sys.argv else 600
     names = dict(us.UNIVERSE)
@@ -223,9 +368,9 @@ def main():
         if i % 50 == 0:
             log("  %d/%d" % (i, len(tick)))
         try:
-            p = prices(t)
+            p, dv = prices(t)
             if len(p) > 300:
-                P[t] = p
+                P[t] = (p, dv)
         except Exception:
             pass
         if t in cm:
@@ -234,7 +379,7 @@ def main():
             except Exception:
                 pass
             time.sleep(0.12)  # SEC 每秒最多 10 次
-    bench = prices("VOO")
+    bench = prices("VOO")[0]
     log("價格 %d 檔、財報 %d 檔" % (len(P), sum(1 for v in Q.values() if v)))
     # 共同日期
     D = [x[0] for x in bench]
@@ -242,18 +387,34 @@ def main():
     N = len(D)
     start = max(260, next(i for i, d in enumerate(D) if d >= (dt.date.fromisoformat(D[-1]) - dt.timedelta(days=365 * YEARS)).isoformat()))
     S = {}
-    for t, p in P.items():
-        o, h, l, c, v = [None] * N, [None] * N, [None] * N, [None] * N, [0] * N
-        for d, a, b, x, y, z in p:
+    RAW, DIV = {}, {}
+    for t, (p, dv) in P.items():
+        o, h, l, c, v, rc = [None] * N, [None] * N, [None] * N, [None] * N, [0] * N, [None] * N
+        for d, a, b, x, y, z, r in p:
             if d in di:
                 k = di[d]
-                o[k], h[k], l[k], c[k], v[k] = a, b, x, y, z
+                o[k], h[k], l[k], c[k], v[k], rc[k] = a, b, x, y, z, r
         for k in range(1, N):  # 補空值
             if c[k] is None and c[k - 1] is not None:
                 o[k] = h[k] = l[k] = c[k] = c[k - 1]
+                rc[k] = rc[k - 1]
         if c[start - 260] is None:
             continue
         S[t] = (o, h, l, c, v)
+        RAW[t] = rc
+        # 近一年配息合計（每天）
+        dd = [(di.get(d), a) for d, a in dv]
+        acc, ttm = [0.0] * N, [0.0] * N
+        for k, a in dd:
+            if k is not None:
+                acc[k] += a
+        run = 0.0
+        for k in range(N):
+            run += acc[k]
+            if k >= 252:
+                run -= acc[k - 252]
+            ttm[k] = run
+        DIV[t] = ttm
     # 穩健動能排名（每天）
     vam = {}
     for t_ in range(start, N):
@@ -271,6 +432,8 @@ def main():
         rs[t_] = set(x[1] for x in arr[int(len(arr) * 0.7):])
     sig = defaultdict(lambda: defaultdict(list))
     for t, (o, h, l, c, v) in S.items():
+        IND = indicators(h, l, c)
+        rc, dvt = RAW[t], DIV[t]
         q_all = Q.get(t) or []
         qi, last_qi, cs = 0, -1, (False, None, None)
         for t_ in range(start, N - 1):
@@ -281,6 +444,8 @@ def main():
                 cs = canslim(q_all[:qi]) if qi else (False, None, None)
                 last_qi = qi
             A, B, Bo = cs
+            fq = q_all[:qi]
+            extra(sig, t, t_, o, h, l, c, v, IND, fq, rc[t_], dvt[t_], B)
             m20, m60 = ma(c, 20, t_), ma(c, 60, t_)
             vol20 = sum(v[t_ - 19:t_ + 1]) / 20
             sig["隨便買（全部股票每天都買）"][t].append(t_)
@@ -352,6 +517,7 @@ def main():
     for nm, ts in now.items():
         L.append("・%s：%s" % (nm, "、".join(sorted(ts)[:20]) or "—"))
     print("\n".join(L))
+    json.dump({"asOf": D[-1], "list": watchlist(S, vam, Q, D)}, open("us_watch.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     json.dump({"asOf": D[-1], "rows": rows, "now": now}, open("us_bt.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
