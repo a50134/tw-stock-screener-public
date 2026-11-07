@@ -143,6 +143,13 @@ def checklist(s, t, f, prof, row, cfg, data, bt=None, weak=None):
         z = analysis.cycle_zone(s, t)
         good = bt.get("long_ok") or (z is not None and z["pos"] < 50) or bt.get("trend_up")
         items.append((good, "5 年回測：%s" % bt.get("summary", "")))
+    try:
+        import fin_health
+        ok_f, txt_f = fin_health.check(s)
+        if ok_f is not None:
+            items.append((ok_f, txt_f.replace("✅ ", "").replace("⚠️ ", "")))
+    except Exception:
+        pass
     sz, info = plan(s, t, prof, row, cfg, data)
     R = risk_cfg(cfg)
     if info:
