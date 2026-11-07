@@ -53,7 +53,9 @@ def plan(s, t, prof, row, cfg, data):
     ind_used = sum(v[1] for k, v in H.items() if v[2] and v[2] == ind and k != s["id"])
     mine = H.get(s["id"], (0, 0.0, ind))[1]
     c = s["c"][t]
-    lim_pos = cap * R["max_pos_pct"] / 100 - mine
+    # 多策略共振的股票可以用到單一股票上限；只有 1 個策略選到的先用一半（查個股時 row 是 None，照上限）
+    half = row is not None and not row.get("star")
+    lim_pos = cap * R["max_pos_pct"] / 100 * (0.5 if half else 1) - mine
     lim_ind = cap * R["max_ind_pct"] / 100 - ind_used - mine
     budget = max(0.0, min(lim_pos, lim_ind, cash))
     L = []
@@ -162,15 +164,15 @@ def nightly(data, cfg, plan_rows, profiles, weak=None, top=8):
         return ""
     by = {s["id"]: s for s in data["stocks"]}
     rows = [r for r in plan_rows if r.get("state") == "ok" and r["id"] in by and not r["id"].startswith("00")]
-    rows.sort(key=lambda r: -(r.get("score") or 0))
+    rows.sort(key=analysis.rank)
     if not rows:
         return ""
-    L = ["💰 依你的資金：今晚可買的股票各買多少（只有你看得到）"]
+    L = ["💰 依你的資金：今晚可買的股票各買多少（只有你看得到；⭐共振的最多用到單一股票上限，其他先用一半）"]
     for r in rows[:top]:
         s = by[r["id"]]
         t = len(s["c"]) - 1
         sz, info = plan(s, t, profiles.get(r["id"]), r, cfg, data)
-        L.append("・%s %s：%s" % (r["id"], r["name"], " ".join(x.strip() for x in sz[1:]) or "—"))
+        L.append("・%s%s %s：%s" % (analysis.star(r), r["id"], r["name"], " ".join(x.strip() for x in sz[1:]) or "—"))
     if weak:
         L.append("大盤偏弱（%s）：建議只買上面數量的一半，保留現金。" % weak)
     return "\n".join(L)

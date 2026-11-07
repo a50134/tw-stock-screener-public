@@ -11,15 +11,15 @@ def line(r):
     """一檔一行：代號 名稱 收盤｜建議｜策略"""
     z = "%s～%s" % (analysis.px(r["lo"]), analysis.px(r["hi"]))
     act = ("🟢 %s 可買" % z) if r.get("state") == "ok" else ("🟡 等跌到 %s" % z)
-    return "・%s %s %s｜%s，停損 %s%s｜%s" % (
-        r["id"], r["name"], analysis.px(r["prev"]), act, analysis.px(r["stop"]),
+    return "・%s%s %s %s｜%s，停損 %s%s｜%s" % (
+        analysis.star(r), r["id"], r["name"], analysis.px(r["prev"]), act, analysis.px(r["stop"]),
         "，目標 %s" % analysis.px(r["t1"]) if r.get("t1") else "", "、".join((r.get("strategies") or [])[:2]) + ("等" if len(r.get("strategies") or []) > 2 else ""))
 
 
 def pick(plan, top_ok=8, top_wait=5):
     """精簡版推薦的股票（早上開盤檢查也只看這些）：回傳 (可買前幾檔, 等拉回前幾檔, 其餘)"""
     rows = [r for r in plan.get("rows", []) if r.get("lo") and r.get("stop") and r.get("state") != "hold"]  # 先觀望的不推薦、早上也不檢查
-    key = lambda r: -(r.get("score") or 0)
+    key = analysis.rank
     ok = sorted([r for r in rows if r.get("state") == "ok"], key=key)
     wait = sorted([r for r in rows if r.get("state") != "ok"], key=key)
     return ok[:top_ok], wait[:top_wait], ok[top_ok:] + wait[top_wait:]
@@ -31,7 +31,7 @@ def build(plan, data=None, profiles=None, cycle="", top_ok=8, top_wait=5, top_de
         return ""
     ok, wait, rest = pick(plan, top_ok, top_wait)
     L = ["📈 條件選股室｜%s 收盤｜國際風險：%s" % (plan.get("date", ""), plan.get("risk", "—")),
-         "共 %d 檔入選，下面依健檢分數列出最值得看的" % len(rows), ""]
+         "共 %d 檔入選，下面依健檢分數列出最值得看的（⭐＝近 5 天有 2 個以上策略都選到，排最前面）" % len(rows), ""]
     if ok:
         L.append("🟢 可買（前 %d 檔）" % len(ok))
         L += [line(r) for r in ok]
