@@ -335,7 +335,7 @@ def main():
         h = [h[i] if h[i] is not None else c[i] for i in range(n)]
         l = [l[i] if l[i] is not None else c[i] for i in range(n)]
 
-        fi, it, dl = [0] * n, [0] * n, [0] * n
+        fi, it, dl, fd = [0] * n, [0] * n, [0] * n, [0] * n
         for d in r["inst"]:
             i = idx.get(d["date"])
             if i is None:
@@ -344,6 +344,8 @@ def main():
             name = d["name"]
             if name.startswith("Foreign"):
                 fi[i] += net
+                if "Dealer" in name:  # 外資自營商（fi 含它；fd 另外存，算「外資不含自營商」用）
+                    fd[i] += net
             elif name == "Investment_Trust":
                 it[i] += net
             elif name.startswith("Dealer"):
@@ -393,6 +395,8 @@ def main():
             "pe": pe, "pb": pb, "yield": dy,
             "o": o, "h": h, "l": l, "c": c, "v": v,
             "fi": fi, "it": it, "dl": dl,
+            "fd": fd if any(fd) else None,
+            "mkt": meta.get("type"),  # twse＝上市、tpex＝上櫃
             "frh": ffill(frh) if any(x is not None for x in frh) else None,
             "mg": ffill(mg) if any(x is not None for x in mg) else None,
             "sh": ffill(sh) if any(x is not None for x in sh) else None,
