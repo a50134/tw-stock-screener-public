@@ -311,7 +311,8 @@ def facts(s, t):
 
 BREAKOUT = "量價突破"
 MOMENTUM = "穩健動能＋外資買超"  # 追強勢股：大盤偏弱時一樣先觀望（回測 2026-06 大盤回檔時平均 -13%）
-CHASE = (BREAKOUT, MOMENTUM)
+PULLBACK = "強勢股回檔月線量縮"  # 大盤回檔時「碰月線」常是跌破的開始（回測 2026-07 平均 -12%）
+CHASE = (BREAKOUT, MOMENTUM, PULLBACK)
 
 
 def market_weak(plan, hist_path=None):
