@@ -447,6 +447,13 @@ def block(s, f, prof, row=None, hold=None):
         elif r["high"] >= 6:
             x.append("創近 %d 個月新高" % (r["high"] + 1))
         L.append("・營收：" + "、".join(x))
+    try:
+        import fin_health
+        ok, txt = fin_health.check(s)
+        if ok is not None:
+            L.append("・" + txt)
+    except Exception:
+        pass
     ch = []
     for nm, st, a5, a20 in (("外資", f["fi_streak"], f["fi5"], f["fi20"]), ("投信", f["it_streak"], f["it5"], f["it20"])):
         ch.append("%s%s（近 5 日 %s、20 日 %s 張）" % (nm, "連買 %d 天" % st if st >= 2 else "買超" if a5 > 0 else "賣超", zh(a5), zh(a20)))

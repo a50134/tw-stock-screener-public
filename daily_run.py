@@ -195,6 +195,11 @@ def main():
             insider.merge(os.path.join(DIR, "data.json"))
         except Exception as e:
             log("內部人申報資料失敗，略過：", e)
+        try:  # 財報健檢（現金流量、負債比；fin_health.yml 每季更新、存在 fin-data 分支）
+            import fin_health
+            log("財報健檢資料：%d 檔" % fin_health.merge(os.path.join(DIR, "data.json")))
+        except Exception as e:
+            log("財報健檢資料失敗，略過：", e)
         run(["node", "daily_report.js", "data.json", "sop_config.json"], timeout=900)
         try:  # 大盤偏弱（國際風險高或 0050 跌破季線）時，只因量價突破入選的改成先觀望
             import analysis
