@@ -221,6 +221,26 @@ def tennis(s, t):
     return v_pull < sum(v[p - 19:p + 1]) / 20  # 拉回量縮
 
 
+def stage(s, t):
+    """強勢股三階段（回測：成長股在第一階段買、抱 60 天勝率 74%、最慘 −33%；第二階段 67%、−60%；第三階段 61%、−58%）
+    回傳 (階段 0～3, 說明, 整理區低點)"""
+    c, v, l = s["c"], s["v"], s["l"]
+    fi, it = s.get("fi") or [0] * len(c), s.get("it") or [0] * len(c)
+    hi60 = max(c[t - 59:t + 1])
+    rng = (max(c[t - 19:t + 1]) / min(c[t - 19:t + 1]) - 1) * 100
+    v20, v60 = sum(v[t - 19:t + 1]) / 20, sum(v[t - 59:t + 1]) / 60
+    inst = sum(fi[t - 19:t + 1]) + sum(it[t - 19:t + 1])
+    up60 = (c[t] / min(c[t - 59:t + 1]) - 1) * 100
+    low20 = min(l[t - 19:t + 1])
+    if c[t] >= max(c[t - 59:t]) and v[t] > v20 * 1.5:
+        return 2, "第二階段（帶量突破）：今天帶量（%.1f 倍均量）創 60 日新高" % (v[t] / v20), low20
+    if up60 > 40 and c[t] / ma(c, 20, t) > 1.15:
+        return 3, "第三階段（加速噴出）：60 日漲 %.0f%%、離月線 %+.0f%%" % (up60, (c[t] / ma(c, 20, t) - 1) * 100), low20
+    if rng < 15 and c[t] >= hi60 * 0.85 and v20 >= v60 * 0.9 and inst > 0:
+        return 1, "第一階段（主力吸籌）：近 20 天在 %.0f%% 內整理、量慢慢增加、法人 20 日買超 %s 張" % (rng, analysis.zh(inst)), low20
+    return 0, "", low20
+
+
 # ---------- 四個面向 ----------
 def industry_rank(data, t):
     """每個產業近 60 日漲幅中位數的排名（0～100，越大越強）"""
@@ -348,7 +368,8 @@ def nightly(data, profiles=None, pool_path=None):
             alerts.append(sid)
             rec.setdefault("closed", []).append({"in": pos["d"], "px": pos["px"], "out": today, "outpx": c[t], "ret": round((c[t] / pos["px"] - 1) * 100, 1), "why": exitw[0]})
             rec["pos"] = None
-        rows.append((sid, rec, F, nf, status, exitw, a))
+        sg = stage(s, t)
+        rows.append((sid, rec, F, nf, status, exitw, a, sg))
     # 12 週沒通過初步篩選的移出名單
     for sid, rec in list(P["stocks"].items()):
         if not rec.get("ok") and not rec.get("pos") and _weeks(rec.get("added"), today) >= 12:
@@ -371,13 +392,20 @@ def text(rows, new, alerts, today):
     L = ["🌱 潛力成長股追蹤（%s）：財報挑出的潛力股，等型態與指標發動再買" % today,
          "名單 %d 檔%s" % (len(rows), "；今天新加入：%s" % "、".join(new) if new else "")]
     rows.sort(key=lambda r: (not (r[0] in alerts), -r[3]))
-    for sid, rec, F, nf, status, exitw, a in rows:
+    for sid, rec, F, nf, status, exitw, a, sg in rows:
         pos = rec.get("pos")
         done = (rec.get("closed") or [])[-1:] if sid in alerts and not pos else []
         head = "・%s %s（%s 加入，四面向 %d/4：%s）" % (sid, rec["name"], rec["added"], nf, "、".join(n for n, g, _ in F if g) or "—")
         L.append(head)
         if status:
             L.append("　" + "；".join(status))
+        k, why, low20 = sg
+        if k == 1 and not exitw:
+            L.append("　🟢 %s ➜ 可以先買 1/3，停損設在整理區低點 %s 以下；等帶量突破再加碼" % (why, analysis.px(low20)))
+        elif k == 2 and not exitw:
+            L.append("　🚀 %s ➜ 可以加碼 1/3（第一階段沒買的，現在先買 1/3）" % why)
+        elif k == 3:
+            L.append("　⚠️ %s ➜ 不追高、不加碼；已經有的用移動停損保護獲利" % why)
         if exitw and sid in alerts:
             L.append("　🔻 出場訊號：%s（%s 發動價 %s → %+.1f%%）" % ("；".join(exitw), done[0]["in"], analysis.px(done[0]["px"]), done[0]["ret"]) if done else "　🔻 出場訊號：" + "；".join(exitw))
         elif exitw:
@@ -386,7 +414,8 @@ def text(rows, new, alerts, today):
             L.append("　✅ 追蹤中：%s 以 %s 發動（%s），移動停損 %s" % (pos["d"], analysis.px(pos["px"]), pos.get("why", ""), analysis.px(pos["stop"])))
         else:
             L.append("　還沒發動：等 VCP 突破樞紐點、短線買訊或網球型態（四面向至少 2 個）")
-    L.append("賣出：收盤跌破往下彎的季線，或跌破移動停損（最高收盤 − 3 倍 ATR）。名單每週日檢討，12 週財報條件不再符合的移出。")
+    L.append("分批：第一階段（橫盤吸籌）先買 1/3 → 第二階段（帶量突破）加 1/3 → 第三階段（噴出）不加碼。")
+    L.append("賣出：收盤跌破往下彎的季線，或跌破移動停損（最高收盤 − 3 倍 ATR）；整理很久沒突破、或跌破整理區低點也先出場。名單每週日檢討，12 週財報條件不再符合的移出。")
     return "\n".join(L)
 
 
