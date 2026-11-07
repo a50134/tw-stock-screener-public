@@ -1,0 +1,39 @@
+name: 財報健檢資料（現金流量、資產負債）
+
+# 手動執行（之後每季財報公布後自動更新：5/20、8/20、11/20、3/31 後）：抓近 3 年現金流量表、資產負債表，存到 fin-data 分支
+on:
+  schedule:
+    - cron: '41 2 20 5,8,11 *'
+    - cron: '41 2 5 4 *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q requests
+      - name: 取得最新選股清單
+        run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data_src.json
+      - run: python fin_health.py data_src.json --start 2023-01-01
+      - name: 存到 fin-data 分支
+        run: |
+          mkdir -p /tmp/out && cp fin_health.json fin_types.json /tmp/out/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q --orphan fin-data
+          git rm -rq --cached . && rm -rf ./*
+          cp /tmp/out/* . && git add fin_health.json fin_types.json
+          git commit -q -m "更新財報健檢資料"
+          git push -q -f origin fin-data
