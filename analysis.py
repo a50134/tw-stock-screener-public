@@ -471,6 +471,11 @@ def block(s, f, prof, row=None, hold=None):
         if len(hw) >= 2:
             db, dr = x["big"] - hw[-2]["big"], x["ret"] - hw[-2]["ret"]
             t += "（比上週 %+.2f 個百分點）、散戶 %.1f%%（%+.2f）" % (db, x["ret"], dr)
+            if x.get("bl") and hw[-2].get("bl"):
+                t += "；千張大戶持有 %s 張（比上週%s %s 張）" % ("{:,}".format(x["bl"]), "增加" if x["bl"] >= hw[-2]["bl"] else "減少", "{:,}".format(abs(x["bl"] - hw[-2]["bl"])))
+            if x.get("hn") and hw[-2].get("hn"):
+                hc = (x["hn"] / hw[-2]["hn"] - 1) * 100
+                t += "；股東人數 %s 人（%+.1f%%%s）" % ("{:,}".format(x["hn"]), hc, "，散戶出場、籌碼更穩" if hc <= -5 else "")
             if db > 0 and dr < 0:
                 t += "，大戶買、散戶賣，籌碼集中"
             elif db < 0 and dr > 0:
