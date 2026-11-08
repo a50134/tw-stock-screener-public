@@ -2,7 +2,7 @@ name: 每日選股報告
 
 on:
   schedule:
-    - cron: '3 13 * * *'   # 每天台灣時間 21:03 開始（避開整點：GitHub 整點排程常延遲或被跳過）
+    - cron: '3 12 * * *'   # 每天台灣時間 20:03 開始（避開整點：GitHub 整點排程常延遲或被跳過）
   workflow_dispatch:        # 也可以在 GitHub 網頁上手動執行
     inputs:
       force:
