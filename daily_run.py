@@ -172,6 +172,14 @@ def main():
                 time.sleep(1800)
         else:
             raise RuntimeError("FinMind 仍沒有 %s 的資料" % expect)
+        try:  # 提早到晚上 8 點跑：看最後一天的法人、融資資料齊不齊（不齊的隔晚會自動補）
+            with open(os.path.join(DIR, "data.json"), encoding="utf-8") as f:
+                st = [x for x in json.load(f)["stocks"] if not x["id"].startswith("00")]
+            n_fi = sum(1 for x in st if (x.get("fi") or [0])[-1])
+            n_mg = sum(1 for x in st if (x.get("mg") or [None])[-1] is not None)
+            log("最後一天資料齊全度：法人 %d／%d 檔、融資 %d／%d 檔" % (n_fi, len(st), n_mg, len(st)))
+        except Exception as e:
+            log("資料齊全度檢查失敗，略過：", e)
         try:  # 國際新聞（Google 新聞，不佔 FinMind 額度）；失敗不影響報告
             gap = (today - last).days  # 週日晚上是 2（週五收盤到週日），連假更多
             run([py, "fetch_finmind.py", "--macro", "--news-days", str(max(3, gap + 1))], timeout=600)
