@@ -21,6 +21,41 @@ US = [  # (代號, 名稱, 權重)
     ("^SOX", "費城半導體", 0.2), ("TSM", "台積電 ADR", 0.15),
 ]
 FUT = [("ES=F", "S&P 期貨", 0), ("NQ=F", "那斯達克期貨", 0.15)]
+POLICY_Q = ["國安基金", "金管會 穩定市場", "限空令", "央行 理監事會", "央行 利率"]
+RESCUE = ("國安基金", "護盤", "限空", "穩定市場措施", "救市")  # 標題有這些字＝政府出手穩定股市（歷史上隔天上漲機率約 86%）
+POLICY_KW = RESCUE + ("央行", "升息", "降息", "金管會")
+
+
+def policy_news(hours=20):
+    """近 hours 小時的國內政策重大新聞（Google 新聞，不用金鑰）。回傳 [(時間, 標題, 是否護盤)]，最多 3 則"""
+    import email.utils
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+    from datetime import datetime, timedelta, timezone
+    cut, out, seen = datetime.now(timezone.utc) - timedelta(hours=hours), [], set()
+    for q in POLICY_Q:
+        url = ("https://news.google.com/rss/search?q=" + urllib.parse.quote(q + " when:1d") + "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant")
+        try:
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                root = ET.fromstring(r.read())
+        except Exception as e:
+            if DEBUG:
+                print("[policy] 失敗", q, e, flush=True)
+            continue
+        for it in root.iter("item"):
+            t = (it.findtext("title") or "").rsplit(" - ", 1)[0].strip()
+            try:
+                pub = email.utils.parsedate_to_datetime(it.findtext("pubDate"))
+                pub = pub if pub.tzinfo else pub.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if not t or t in seen or pub < cut or not any(k in t for k in POLICY_KW):
+                continue
+            seen.add(t)
+            out.append((pub.astimezone(timezone(timedelta(hours=8))).strftime("%m-%d %H:%M"), t, any(k in t for k in RESCUE)))
+    out.sort(key=lambda x: (not x[2], x[0]), reverse=False)
+    return out[:3]
 
 
 def get(url, data=None, headers=None, timeout=15):
@@ -130,9 +165,20 @@ def overview():
             score -= 0.2
     except Exception:
         pass
+    rescue = False
+    try:  # 國內政策重大消息（國安基金、央行、金管會）：常在收盤後或週末宣布
+        pn = policy_news()
+        rescue = any(x[2] for x in pn)
+        for d, t, r in pn:
+            L.append("・%s 政策消息（%s）：%s" % ("🛡️" if r else "🏛️", d, t))
+    except Exception as e:
+        if DEBUG:
+            print("[policy] 失敗", e, flush=True)
     if not wsum:
         return "", None
     s = score / wsum
+    if rescue:
+        why.append("政府護盤（國安基金／金管會）")
     if s >= 0.8:
         verdict, tip = "📈 偏多（可能開高）", "可能開高：名單股票注意不追價，高於「不追價」就掛單等回檔"
     elif s >= 0.3:
@@ -143,6 +189,8 @@ def overview():
         verdict, tip = "小跌", "可能小幅開低：分兩批買，第一批先買一半"
     else:
         verdict, tip = "📉 偏空（可能開低）", "可能開低：先觀察 15 分鐘，止跌再買、只買一半；持股留意停損"
+    if rescue and s < 0.8:
+        tip += "；政府已出手護盤，急跌後的強勢龍頭股可以小量分批買，不要一次買滿"
     head = "🌙 開盤前觀察：%s（綜合分數 %+.2f）" % (verdict, s)
     return "\n".join([head] + L + ["・原因：" + ("、".join(why) if why else "各項變動都不大"), "・建議：" + tip]), s
 
