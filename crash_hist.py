@@ -21,7 +21,7 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 def yahoo(sym):
     for host in ("query1", "query2"):
         try:
-            r = requests.get("https://%s.finance.yahoo.com/v8/finance/chart/%s?range=max&interval=1d" % (host, sym), headers=UA, timeout=40)
+            r = requests.get("https://%s.finance.yahoo.com/v8/finance/chart/%s?period1=852076800&period2=%d&interval=1d" % (host, sym, int(dt.datetime.now().timestamp())), headers=UA, timeout=40)
             r.raise_for_status()
             res = r.json()["chart"]["result"][0]
             q = res["indicators"]["quote"][0]
