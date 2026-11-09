@@ -11,6 +11,7 @@ crash.py - 大跌撿好股（3-3-4 分批加碼法）
   第 2 批 30%：站穩 5 日線（連 2 天收在 5 日線上）＋融資大退（融資餘額比大跌前少 10% 以上）
   第 3 批 40%：放量長紅突破月線（收盤站上月線、量 ≥ 20 日均量 1.5 倍、紅 K 實體 ≥ 3%）
 汰弱留強：買進後跌破大跌事件的最低價再低 5%，不再加碼
+系統性衰退不撿（regime）：美股跌破 200 日線＋近一年美債殖利率倒掛 → 只列名單不買（1997～2026 年 80 次大跌：這種情況 82% 撿了會套）
 大盤落地指標（使用者定的止跌訊號，market_bottom）：融資連續大減、爆量長下影線、3 天不破底、KD／RSI 低檔金叉、台積電聯發科站穩
   回測：等 2 個訊號才買反而變差（抱 20 天勝率 61%→48%，大跌常是 V 型反彈）；3 個以上只出現過 1 波（20 天勝率 94%），所以只當參考，不擋買進
 
@@ -203,7 +204,38 @@ def plan(s, t0, upto):
     return got
 
 
-def nightly(data):
+def regime():
+    """系統性衰退警訊（crash_hist.py 用 1997～2026 年 80 次台股大跌研究）：
+    美股（標普 500）跌破 200 日線、而且近一年美債殖利率曲線（10 年 − 3 個月）倒掛過 → 17 次有 14 次撿了會套（82%），120 天平均 −4.6%
+    （2000～2001 網路泡沫、2007～2008 金融海嘯都是）；其他 63 次只有 48%、平均 +3.7%；兩個都沒事 26 次只套 9 次（35%）
+    回傳 (警訊 True/False/None＝抓不到, 說明)"""
+    import requests
+    UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
+
+    def get(sym):
+        for host in ("query1", "query2"):
+            try:
+                r = requests.get("https://%s.finance.yahoo.com/v8/finance/chart/%s?range=2y&interval=1d" % (host, sym), headers=UA, timeout=20)
+                r.raise_for_status()
+                res = r.json()["chart"]["result"][0]
+                return {ts: c for ts, c in zip(res["timestamp"], res["indicators"]["quote"][0]["close"]) if c}
+            except Exception:
+                continue
+        return {}
+    spx, tnx, irx = get("%5EGSPC"), get("%5ETNX"), get("%5EIRX")
+    if len(spx) < 200 or not tnx or not irx:
+        return None, "美股／美債資料抓不到，請自己判斷是不是系統性衰退"
+    c = [spx[k] for k in sorted(spx)]
+    m200 = sum(c[-200:]) / 200
+    below = c[-1] < m200
+    ks = sorted(set(tnx) & set(irx))[-250:]
+    curve = min(tnx[k] - irx[k] for k in ks) if ks else None
+    inv = curve is not None and curve < 0
+    why = "美股 %s 200 日線（%.0f／%.0f）、近一年美債殖利率曲線%s（最低 %+.2f）" % ("跌破" if below else "還在", c[-1], m200, "倒掛過" if inv else "沒倒掛", curve or 0)
+    return below and inv, why
+
+
+def nightly(data, reg=None):
     """有大跌事件（30 個交易日內）時回傳報告段落，沒有回傳空字串"""
     D, S = data["dates"], data["stocks"]
     m = next((x["c"] for x in S if x["id"] == "0050"), None)
@@ -225,6 +257,11 @@ def nightly(data):
     cand.sort(key=lambda x: -x[0])
     L = ["🛒 大跌撿好股（3-3-4 分批）：%s 0050 五日 %+.1f%%，第 %d 個交易日" % (D[t0], r5(m, t0) * 100, t - t0 + 1),
          "挑財報健檢過、大跌前在季線上、跌 10%% 以上的好股票（共 %d 檔，列前 %d）；第 1 批 30%%（破整數關卡＋超賣背離）→ 第 2 批 30%%（站穩 5 日線＋融資大退）→ 第 3 批 40%%（帶量長紅突破月線）" % (len(cand), min(TOP, len(cand)))]
+    warn, rwhy = reg if reg is not None else regime()
+    if warn:
+        L.append("⚠️ 系統性衰退警訊：%s。歷史上這種情況大跌後撿了 8 成會再套（2000 網路泡沫、2008 金融海嘯），這波先不撿，名單只列出來觀察" % rwhy)
+    else:
+        L.append("✅ 判斷是暫時性大跌：%s（歷史上這種情況撿了大多會漲回來）" % rwhy if warn is False else "❔ " + rwhy)
     mb = market_bottom(data, t, t0)
     n = sum(x[1] for x in mb)
     L.append("大盤落地指標 %d／5：%s" % (n, "；".join(("✅" if ok else "⬜") + name + "（" + why + "）" for name, ok, why in mb)))
@@ -235,6 +272,8 @@ def nightly(data):
         done = "已到第 %d 批" % len(got) if got else "還沒有買訊"
         today = "；今天：" + "、".join("第 %d 批 %s" % (k, v) for k, v in sorted(sg.items())) if sg else ""
         nxt = ["等破整數關卡＋超賣背離", "等站穩 5 日線＋融資大退", "等帶量長紅突破月線", "三批都到了"][len(got)]
+        if warn:
+            done, nxt, today = "系統性衰退警訊", "先不買，只觀察", ""
         L.append("・%s %s %s｜%s｜%s，下一步：%s%s" % (s["id"], s["name"], exits.px(s["c"][t]), why, done, nxt, today))
     L.append("跌破這波最低價再低 5% 就不再加碼（汰弱留強）；每檔停損買進前跟你討論。")
     return "\n".join(L)
