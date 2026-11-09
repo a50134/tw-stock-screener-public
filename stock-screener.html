@@ -2068,12 +2068,14 @@ $('#cycBox').addEventListener('click',e=>{const tr=e.target.closest('tr[data-sop
 
 /* ---------- 國際情勢 ---------- */
 const MNEG=['加徵','課徵','提高關稅','新關稅','報復','制裁','禁令','禁售','出口管制','戰爭','衝突','升息','暴跌','崩盤','重挫','衰退','違約','封鎖','軍演','斷鏈','恐慌','停擺','威脅','sanction'];
-const MPOS=['降息','協議','休戰','停火','刺激','豁免','暫緩','放寬','達成','反彈','創新高','利多','deal'];
+const MPOS=['降息','協議','休戰','停火','刺激','豁免','暫緩','放寬','達成','反彈','創新高','利多','deal','護盤','救市','限空'];
+const MRESCUE=/國安基金.{0,12}(進場|護盤|出手|啟動)|限空令|穩定市場措施|救市/;
+function macroRescue(){const R=macroRecent().filter(n=>MRESCUE.test(n.title));return R.length?'國安基金／金管會已出手護盤（'+R[0].d.slice(5,10)+'）':''}
 const MSECT=[[/關稅|tariff/i,'出口、電子代工、傳產'],[/晶片|半導體|出口管制|輝達|黃仁勳|AI/i,'半導體、IC 設計、AI 伺服器'],[/台海|軍演|解放軍/,'全市場（風險資產）'],[/利率|升息|降息|聯準會|鮑爾|Fed/i,'金融、高本益比成長股'],[/油價|OPEC|原油/i,'塑化、航空、航運']];
 function normMacro(a){return(Array.isArray(a)?a:[]).filter(n=>n&&n.title).map(n=>{const t=String(n.title);let sc=0;MNEG.forEach(w=>{if(t.toLowerCase().includes(w.toLowerCase()))sc--});MPOS.forEach(w=>{if(t.toLowerCase().includes(w.toLowerCase()))sc++});
   return{d:String(n.d||''),title:t,src:String(n.src||''),q:String(n.q||''),link:/^https?:\/\//.test(n.link||'')?n.link:'',sc}}).sort((a,b)=>a.d<b.d?1:-1)}
 function macroRecent(){const M=DATA.macro||[];if(!M.length)return[];const top=M[0].d.slice(0,10),c=new Date(new Date(top+'T00:00:00Z').getTime()-2*864e5).toISOString().slice(0,10);return M.filter(n=>n.d.slice(0,10)>=c)}
-function macroAuto(){const R=macroRecent();if(!R.length)return'未知';const neg=R.filter(n=>n.sc<0).length;return neg>=10?'高':neg>=4?'中':'低'}
+function macroAuto(){const R=macroRecent();if(!R.length)return'未知';const neg=R.filter(n=>n.sc<0).length,lv=neg>=10?2:neg>=4?1:0;return['低','中','高'][Math.max(0,lv-(macroRescue()?1:0))]}  // 政府護盤：風險降一級（歷史上進場隔天上漲機率約 86%）
 function macroRisk(){return S.sop.risk==='auto'?macroAuto():S.sop.risk}
 function renderMacro(){const R=macroRecent(),rk=macroRisk(),L='target="_blank" rel="noopener noreferrer"';
   $('#riskPill').className='risk r'+rk;$('#riskPill').textContent='風險：'+rk;$('#riskSel').value=S.sop.risk;
@@ -2129,7 +2131,7 @@ let SOPRES=null;
 const demoTag=()=>DATA.source==='demo'?'（示範資料，數字是模擬的）':'';
 function sopReport(fmt,only){const R=SOPRES;if(!R)return'';const b=t=>fmt==='dc'?`**${t}**`:t,IC={buy:'🟢',wait:'🟡',no:'🔴',pre:'⚪'};
   const rows=R.rows.filter(r=>!only||r.vd.v==='buy'||r.vd.v==='pre');
-  const L=[b('📈 條件選股室｜每日 SOP'),`資料：${D[T]} 收盤${demoTag()}`,`國際風險：${R.risk}`,`策略：${R.st}｜初篩 ${R.n1} → 淘汰後 ${R.n2} → 最後 ${R.rows.length} 檔`,''];
+  const L=[b('📈 條件選股室｜每日 SOP'),`資料：${D[T]} 收盤${demoTag()}`,`國際風險：${R.risk}${macroRescue()?'｜🛡️ '+macroRescue():''}`,`策略：${R.st}｜初篩 ${R.n1} → 淘汰後 ${R.n2} → 最後 ${R.rows.length} 檔`,''];
   const M=macroRecent().filter(n=>n.sc<0).slice(0,3);if(M.length){L.push(b('國際風險新聞'));M.forEach(n=>L.push('・'+n.title));L.push('')}
   if(!rows.length)L.push(only?'今天沒有「可買」或「待開盤」的股票。':'今天沒有股票通過全部步驟。');
   rows.forEach(({s,hc,vd,px})=>{const pl=vd.pl;L.push(`${IC[vd.v]} ${b(s.id+' '+s.name)}　健檢 ${hc.grade} ${hc.score}　昨收 ${fp2(s.c[T])}`);
@@ -2163,7 +2165,7 @@ function renderSOP(){if(!DATA)return;const P=S.sop;
   $('#s3n').textContent=`最後名單 ${s3.length} 檔`;
   SOPRES={st:st.name,n1:s1.length,n2:s2.length,risk,rows:s3.map(({s,hc})=>{const px=+P.px[s.id]||0;return{s,hc,px,vd:verdict(s,T,px,risk)}})};
   // 給每日自動報告用：步驟 ④ 需要的價位（隔天早上開盤檢查會用到）
-  window.__SOP={cyc:cycList().map(({s,z,held})=>({id:s.id,name:s.name,close:z.c,verdict:z.v,lo:+z.lo.toFixed(2),hi:+z.hi.toFixed(2),buy:+z.buy.toFixed(2),sell:+z.sell.toFixed(2),lots:z.lots,years:z.years,held,news:z.news.slice(0,3).map(n=>n.title)})),date:D[T],risk,gapMax:P.gapMax,gapNo:P.gapNo,gapDown:P.gapDown,strategy:st.name,rows:SOPRES.rows.map(({s,hc,vd})=>({id:s.id,name:s.name,prev:s.c[T],grade:hc.grade,score:hc.score,lo:vd.pl?vd.pl.lo:null,hi:vd.pl?vd.pl.hi:null,chase:vd.chase??null,stop:vd.pl?vd.pl.stop:null,t1:vd.pl?vd.pl.t1:null,state:vd.pl?vd.pl.state:null,note:vd.pl?vd.pl.note:''}))};
+  window.__SOP={rescue:macroRescue(),cyc:cycList().map(({s,z,held})=>({id:s.id,name:s.name,close:z.c,verdict:z.v,lo:+z.lo.toFixed(2),hi:+z.hi.toFixed(2),buy:+z.buy.toFixed(2),sell:+z.sell.toFixed(2),lots:z.lots,years:z.years,held,news:z.news.slice(0,3).map(n=>n.title)})),date:D[T],risk,gapMax:P.gapMax,gapNo:P.gapNo,gapDown:P.gapDown,strategy:st.name,rows:SOPRES.rows.map(({s,hc,vd})=>({id:s.id,name:s.name,prev:s.c[T],grade:hc.grade,score:hc.score,lo:vd.pl?vd.pl.lo:null,hi:vd.pl?vd.pl.hi:null,chase:vd.chase??null,stop:vd.pl?vd.pl.stop:null,t1:vd.pl?vd.pl.t1:null,state:vd.pl?vd.pl.state:null,note:vd.pl?vd.pl.note:''}))};
   $('#sopTbl').innerHTML=`<thead><tr><th>股票</th><th>健檢</th><th>主力(5日)</th><th>昨收</th><th>參考買進區間</th><th>不追價</th><th>停損</th><th>今日價格</th><th>判斷</th><th>理由</th><th>可買</th></tr></thead><tbody>`+
     (s3.length?s3.map(({s,hc})=>{const px=+P.px[s.id]||0,vd=verdict(s,T,px,risk),pl=vd.pl;let q='—';if(pl&&(vd.v==='buy'||vd.v==='pre')){const z=sizing(px>0?px:tick((pl.lo+vd.chase)/2),pl.stop);if(z){q=fmtSh(risk==='高'&&vd.v==='buy'?Math.floor(z.sh/2):z.sh)}}
       return `<tr class="row" data-sop="${s.id}"><td><span class="sid">${s.id}</span>${esc(s.name)}</td><td><span class="gr g${hc.grade}">${hc.grade}</span> ${hc.score}</td><td>${(b=>b?`<span class="${b.d5.net>0?'up':b.d5.net<0?'down':''}">${b.verdict} ${(b.d5.net>0?'+':'')+b.d5.net.toLocaleString()}</span>`:'<span class="miss">—</span>')(bkOf(s.id,T))}</td><td>${fp2(s.c[T])}</td><td>${pl?fp2(pl.lo)+'～'+fp2(pl.hi):'—'}</td><td>${vd.chase?fp2(vd.chase):'—'}</td><td>${pl?fp2(pl.stop):'—'}</td>

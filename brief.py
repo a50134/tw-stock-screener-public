@@ -30,7 +30,7 @@ def build(plan, data=None, profiles=None, cycle="", top_ok=8, top_wait=5, top_de
     if not rows and not cycle:
         return ""
     ok, wait, rest = pick(plan, top_ok, top_wait)
-    L = ["📈 條件選股室｜%s 收盤｜國際風險：%s" % (plan.get("date", ""), plan.get("risk", "—")),
+    L = ["📈 條件選股室｜%s 收盤｜國際風險：%s%s" % (plan.get("date", ""), plan.get("risk", "—"), "｜🛡️ " + plan["rescue"] if plan.get("rescue") else ""),
          "共 %d 檔入選，下面依健檢分數列出最值得看的（⭐＝近 5 天有 2 個以上策略都選到，排最前面）" % len(rows), ""]
     if ok:
         L.append("🟢 可買（前 %d 檔）" % len(ok))

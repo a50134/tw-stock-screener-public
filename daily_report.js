@@ -81,7 +81,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       if (r.onlyIfHits && !n) continue;  // 例如作帳期以外或沒有符合，就不放這一段
       const sop = w.__SOP;
       if (id === '#exDc' && sop) {
-        Object.assign(plan, { date: sop.date, risk: sop.risk, gapMax: sop.gapMax, gapNo: sop.gapNo, gapDown: sop.gapDown });
+        Object.assign(plan, { date: sop.date, risk: sop.risk, rescue: sop.rescue || '', gapMax: sop.gapMax, gapNo: sop.gapNo, gapDown: sop.gapDown });
         for (const x of sop.rows) (plan.rows[x.id] = plan.rows[x.id] || { ...x, strategies: [] }).strategies.push(sop.strategy);
       }
       // 拆成：標題（策略行之前）、國際新聞、策略本體（去掉重複的新聞與免責聲明）

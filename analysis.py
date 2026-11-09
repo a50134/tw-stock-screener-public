@@ -36,6 +36,11 @@ def is_cyc(prof):
     return str((prof or {}).get("cyc", "")).startswith(("循環股", "偏循環"))
 
 
+# 循環股在近 5 年高低區間超過這個位置（%）就不建議買。回測（近 1.5 年、循環股、買進抱 40 天）：
+# 60% 以下勝率 65～72%、60～100% 只有 55～58%；「站回月線／外資買超／不追大漲」等確認條件沒有讓勝率變好，所以不加
+CYC_HIGH = 60
+
+
 def cycle_zone(s, t=None):
     """循環股在「近 5 年平均低點～平均高點」的位置；不是循環股或沒有資料回傳 None
     zone：low（平均低點 +10% 以內）、high（平均高點 −10% 以內）、mid（中間）"""
@@ -363,8 +368,15 @@ def guard_cycle(plan, data):
     for r in plan.get("rows", []):
         s = by.get(r.get("id"))
         z = cycle_zone(s) if s else None
-        if z and z["zone"] == "high" and r.get("state") != "hold":
-            r["state"], r["hold_why"] = "hold", "循環股已到近 %d 年平均高點 %s 附近" % (z["n"], px(z["hi"]))
+        if not z or r.get("state") == "hold":
+            continue
+        why = ""
+        if z["zone"] == "high":
+            why = "循環股已到近 %d 年平均高點 %s 附近" % (z["n"], px(z["hi"]))
+        elif z["zone"] == "mid" and z["pos"] >= CYC_HIGH:
+            why = "循環股在近 %d 年高低區間的 %d%% 位置（偏高），等跌近平均低點 %s 再買" % (z["n"], round(z["pos"]), px(z["lo"]))
+        if why:
+            r["state"], r["hold_why"] = "hold", why
             n += 1
     return n
 
@@ -382,6 +394,9 @@ def advise(s, t, row=None):
                 z["n"], px(z["lo"]), px(z["hi"]), fmt(pct(z["hi"], z["c"])), px(stop), warn)
         if z["zone"] == "high":
             return "🔴 循環股高檔：已到近 %d 年平均高點 %s 附近，不要買；有持股分批賣出%s" % (z["n"], px(z["hi"]), warn)
+        if z["pos"] >= CYC_HIGH:  # 中間偏高：不買（2026-11 華新在 74% 位置買進後跌 18%）
+            return "🟡 循環股位置偏高（近 %d 年高低區間的 %d%%）：先不要買，等跌近平均低點 %s～%s 再分批買；有持股漲到平均高點 %s 附近就賣%s" % (
+                z["n"], round(z["pos"]), px(z["lo"]), px(tk(z["lo"] * 1.1)), px(z["hi"]), warn)
         base = advise(dict(s, id=""), t, row)  # 中間位置：照原本規則，再補上循環股價位
         return base + "｜循環股：最好等跌近平均低點 %s～%s 再買，漲到平均高點 %s 附近就賣%s" % (
             px(z["lo"]), px(tk(z["lo"] * 1.1)), px(z["hi"]), warn)
