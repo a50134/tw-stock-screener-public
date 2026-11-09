@@ -109,12 +109,22 @@ def main():
         ("離一年高點跌不到 20%", lambda r: r["off_hi"] > -0.20),
         ("年線上揚＋美股 200 日上", lambda r: r["up240"] and r["spx_up"]),
         ("年線上揚＋沒倒掛", lambda r: r["up240"] and not r["inverted"]),
+        ("美股 200 日上＋沒倒掛", lambda r: r["spx_up"] and not r["inverted"]),
+        ("美股 200 日上或沒倒掛", lambda r: r["spx_up"] or not r["inverted"]),
+        ("美股 200 日下＋倒掛（系統性警訊）", lambda r: not r["spx_up"] and r["inverted"]),
+        ("VIX ≥ 30", lambda r: (r["vix"] or 0) >= 30),
     ]
     print("\n指標成立時 vs 不成立時：撿了會套的比例、120 天後平均報酬")
     for name, f in tests:
         a = [r for r in done if f(r)]
         b = [r for r in done if not f(r)]
         s = lambda L: "%d 次，套 %d 次（%.0f%%），120 天平均 %+.1f%%" % (len(L), sum(r["bad"] for r in L), 100 * sum(r["bad"] for r in L) / len(L), 100 * sum(r["f120"] for r in L) / len(L)) if L else "0 次"
+        print("・%s：成立 %s｜不成立 %s" % (name, s(a), s(b)))
+    print("\n更嚴格的「系統性」：之後最多再跌 25% 以上")
+    for name, f in tests:
+        a = [r for r in done if f(r)]
+        b = [r for r in done if not f(r)]
+        s = lambda L: "%d 次，再跌 25%% 以上 %d 次（%.0f%%）" % (len(L), sum(r["dd"] <= -0.25 for r in L), 100 * sum(r["dd"] <= -0.25 for r in L) / len(L)) if L else "0 次"
         print("・%s：成立 %s｜不成立 %s" % (name, s(a), s(b)))
     json.dump(rows, open("crash_hist.json", "w"), ensure_ascii=False, indent=1)
 
