@@ -59,6 +59,22 @@ def step(p):
     return e / 2 if p < e * 5 else e
 
 
+MODE = "dual"  # 外資、融資雙賣的題材股剔除（權值股可以）；回測用：old／big50／big100
+data_rank = {}
+
+
+def big(s, t, rank, n):
+    """是不是權值股：市值（股本 × 股價）排名前 n"""
+    return rank.get(s["id"], 9999) <= n
+
+
+def set_rank(data, t):
+    L = sorted(((float(x["shares"]) * x["c"][t], x["id"]) for x in data["stocks"]
+                if not x["id"].startswith("00") and x.get("shares") and x["c"][t]), reverse=True)
+    data_rank.clear()
+    data_rank.update({sid: i + 1 for i, (_, sid) in enumerate(L)})
+
+
 def pick(s, t, D, m):
     """大跌那天是否入選；回傳 (入選, 排序分數, 說明) """
     c, v = s["c"], s["v"]
@@ -76,10 +92,17 @@ def pick(s, t, D, m):
     it5 = sum(s["it"][i] or 0 for i in range(t - 4, t + 1))
     mg = s.get("mg") or []
     mg_up = len(mg) > t and mg[t] and mg[t - 5] and mg[t] > mg[t - 5]
-    if fi5 < 0 and mg_up:  # 外資賣、散戶融資買：投機股，斷捨離
+    mg_dn = len(mg) > t and mg[t] and mg[t - 5] and mg[t] < mg[t - 5]
+    if MODE == "old" and fi5 < 0 and mg_up:
         return False, 0, ""
-    score = (1 if fi5 + it5 >= 0 else 0) * 100 - r5(c, t) * 100
-    return True, score, "5 日 %+.1f%%（大盤 %+.1f%%），法人 5 日 %s 張" % (r5(c, t) * 100, r5(m, t) * 100, "{:+,}".format(fi5 + it5))
+    if MODE in ("dual", "big50", "big100") and fi5 < 0 and mg_dn and not big(s, t, data_rank, 50):  # 外資、融資雙賣的題材股：斷捨離（權值股可以）
+        return False, 0, ""
+    if MODE == "big50" and not big(s, t, data_rank, 50):
+        return False, 0, ""
+    if MODE == "big100" and not big(s, t, data_rank, 100):
+        return False, 0, ""
+    score = (200 if big(s, t, data_rank, 50) else 0) + (1 if fi5 + it5 >= 0 else 0) * 100 - r5(c, t) * 100  # 權值股（市值前 50）排最前面：回測抱 60 天勝率 87%、最差 −15%
+    return True, score, "%s5 日 %+.1f%%（大盤 %+.1f%%），法人 5 日 %s 張" % ("權值股・" if big(s, t, data_rank, 50) else "", r5(c, t) * 100, r5(m, t) * 100, "{:+,}".format(fi5 + it5))
 
 
 def signals(s, t0, t):
@@ -87,15 +110,15 @@ def signals(s, t0, t):
     c, o, v = s["c"], s["o"], s["v"]
     out = {}
     pre = c[t0 - 6]  # 大跌前的收盤
-    st = step(pre)
-    lv = math.floor(pre / st) * st  # 大跌前站在上面的整數關卡
-    while lv - st > c[t]:  # 跌破好幾個關卡時，取最接近現價、已經跌破的那個
-        lv -= st
+    st = step(c[t])
+    lv = math.ceil(c[t] / st) * st  # 現價上面最近的整數關卡（例如 727 → 800、4480 → 4500）
+    if lv > pre:  # 大跌前就在這個關卡下面，不算「跌破」
+        lv = None
     lo20 = min(c[t - 20:t])
     r_now, r_lo = exits.rsi(c, t), exits.rsi(c, c.index(lo20, t - 20, t))
     div = c[t] <= lo20 and r_now > r_lo + 2
     hook = exits.rsi(c, t - 1) < 30 and r_now > exits.rsi(c, t - 1)
-    if c[t] < lv and (div or hook):
+    if lv and c[t] < lv and (div or hook):
         out[1] = "跌破整數關卡 %s＋%s（RSI %.0f）" % (exits.px(lv), "超賣背離" if div else "超賣往上勾", r_now)
     m5, m5p = exits.ma(c, 5, t), exits.ma(c, 5, t - 1)
     mg = s.get("mg") or []
@@ -159,7 +182,7 @@ def market_bottom(data, t, t0):
 
 
 def plan(s, t0, upto):
-    """模擬 3-3-4：依序等第 1、2、3 批訊號（第 2 批前要先有第 1 批，第 3 批可單獨成立）；跌破事件低點 −5% 停止加碼。
+    """模擬 3-3-4：嚴格依序等第 1、2、3 批訊號（沒有第 1 批就不買）；跌破事件低點 −5% 停止加碼。
     回傳 [(批次, 日期索引, 價格)]"""
     c, o = s["c"], s["o"]
     got, low = [], min(c[t0 - 5:t0 + 1])
@@ -169,9 +192,9 @@ def plan(s, t0, upto):
             break
         sg = signals(s, t0, t)
         n = len(got) + 1
-        if n == 1 and (1 in sg or 2 in sg or 3 in sg):
+        if n == 1 and 1 in sg:  # 使用者規定：一定要先出現「破整數關卡＋超賣背離」才開始買
             got.append((1, t, c[t]))
-        elif n == 2 and (2 in sg or 3 in sg):
+        elif n == 2 and 2 in sg:
             got.append((2, t, c[t]))
         elif n == 3 and 3 in sg:
             got.append((3, t, c[t]))
@@ -191,6 +214,7 @@ def nightly(data):
     if not ev:
         return ""
     t0 = ev[-1]
+    set_rank(data, t0)
     cand = []
     for s in S:  # 大跌開始後 5 個交易日內任何一天符合都算（連續大跌時後面才跌深的也抓得到）
         for u in range(min(t, t0 + 5), t0 - 1, -1):
@@ -221,6 +245,7 @@ def backtest(data, holds=(20, 60)):
     m = next(x["c"] for x in S if x["id"] == "0050")
     res = {}
     for t0 in events(D, m):
+        set_rank(data, t0)
         for s in S:
             ok, sc, _ = pick(s, t0, D, m)
             if not ok:
