@@ -295,6 +295,14 @@ def main():
                 log("潛力成長股追蹤已加入報告")
         except Exception as e:
             log("潛力成長股追蹤失敗，略過：", e)
+        try:  # 大跌撿好股（3-3-4 分批）：0050 五日跌 6% 以上後 30 個交易日內才出現
+            import crash
+            ctext = crash.nightly(ld("data.json"))
+            if ctext:
+                add(["report_discord.txt", "report_line.txt"], ctext)
+                log("大跌撿好股已加入報告")
+        except Exception as e:
+            log("大跌撿好股失敗，略過：", e)
         try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
             import addwatch
             atext = addwatch.nightly(ld("data.json"), cfg, ld("stock_profiles.json", {}))
