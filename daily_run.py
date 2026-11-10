@@ -297,12 +297,17 @@ def main():
             log("潛力成長股追蹤失敗，略過：", e)
         try:  # 大跌撿好股（3-3-4 分批）：0050 五日跌 6% 以上後 30 個交易日內才出現
             import crash
-            ctext = crash.nightly(ld("data.json"))
+            reg = crash.regime()  # 系統性衰退判斷（美股 200 日線＋美債殖利率），兩段共用
+            ctext = crash.nightly(ld("data.json"), reg)
             if ctext:
                 add(["report_discord.txt", "report_line.txt"], ctext)
                 log("大跌撿好股已加入報告")
+            dtext = crash.dip_nightly(ld("data.json"), reg)
+            if dtext:
+                add(["report_discord.txt", "report_line.txt"], dtext)
+                log("好公司跌深抄底已加入報告")
         except Exception as e:
-            log("大跌撿好股失敗，略過：", e)
+            log("大跌撿好股／跌深抄底失敗，略過：", e)
         try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
             import addwatch
             atext = addwatch.nightly(ld("data.json"), cfg, ld("stock_profiles.json", {}))
