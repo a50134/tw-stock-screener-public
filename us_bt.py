@@ -14,6 +14,7 @@ us_bt.py - 美股策略回測（近 5 年）：台股用的策略搬到美股，
   A. 財報後漂移＋接近一年高點（新季報 EPS 年增 >25%、收盤在一年高點 5% 內，申報後 3 天內進場）
   B. RSI(2) 短線超跌（Larry Connors：站上 200 日線、2 日 RSI<5，站回 5 日線就賣，最多 10 天）
   C. 高毛利品質＋動能（近 4 季毛利÷總資產 ≥30%、120 日漲幅前 30%、站上 200 日線；Novy-Marx）
+  G. 低波動 30 檔、H. 買回庫藏股最多 30 檔（每月換股的組合，portfolios）；E. 10 個月均線擇時、F. 雙動能 GEM（us_timing.py）
   D. 內部人集體買進（SEC 內部人申報資料集：10 天內 ≥2 位內部人公開市場買進 ≥1 萬美元，申報日進場）
 回測：訊號隔天開盤買，抱 20／60 個交易日收盤賣，扣 0.3% 成本（手續費＋匯差），同一檔抱著時不重複買
 用法：python us_bt.py [--max 600] > us_bt_latest.txt
@@ -485,6 +486,117 @@ def watchlist(S, vam, Q, D):
     return out
 
 
+def shares_chg(q):
+    """近一年流通股數變化（%）：股數用「近 4 季淨利÷近 4 季 EPS」推算，和一年前比；負的＝公司在買回庫藏股"""
+    if len(q) < 8:
+        return None
+    def sh(qq):
+        ni, ep = [x["ni"] for x in qq], [x["eps"] for x in qq]
+        if any(v is None for v in ni + ep) or sum(ep) <= 0 or sum(ni) <= 0:
+            return None
+        return sum(ni) / sum(ep)
+    a, b = sh(q[-4:]), sh(q[-8:-4])
+    if not a or not b:
+        return None
+    ch = (a / b - 1) * 100
+    return ch if -30 < ch < 30 else None  # 太誇張的多半是分割或資料問題
+
+
+def portfolios(S, Q, D, vb, vam, start):
+    """每月最後一個交易日換股、平均分配、抱到下個月底；換掉的部位扣 0.3% 成本
+    注意：股票名單是「現在的」標普 500 成分股，被踢出指數的爛股不在裡面，所以要跟「全部股票平均」比才公平，不能只跟 VOO 比"""
+    N = len(D)
+    ME = [t for t in range(start, N - 1) if D[t][:7] != D[t + 1][:7]]
+    if len(ME) < 13:
+        return []
+    qat = lambda t, day: [x for x in (Q.get(t) or []) if x["filed"] <= day]
+
+    def pick_lowvol(t_):
+        sc = []
+        for t, (o, h, l, c, v) in S.items():
+            r = [c[k] / c[k - 1] - 1 for k in range(t_ - 251, t_ + 1)]
+            sc.append((st.pstdev(r), t))
+        return [x[1] for x in sorted(sc)[:30]]
+
+    def pick_buyback(t_, health=True):
+        sc = []
+        for t in S:
+            q = qat(t, D[t_])
+            ch = shares_chg(q)
+            if ch is None or ch > -2:
+                continue
+            if health and canslim(q)[1] is False:
+                continue
+            sc.append((ch, t))
+        return [x[1] for x in sorted(sc)[:30]]
+
+    def pick_vam(t_, health=True):
+        out = []
+        for t in vam.get(t_, []):
+            if health:
+                q = qat(t, D[t_])
+                if q and canslim(q)[1] is False:
+                    continue
+            out.append(t)
+        return out
+
+    def pick_lowvol_bb(t_):
+        lv = set(pick_lowvol_n(t_, 100))
+        return [t for t in pick_buyback(t_) if t in lv][:30]
+
+    def pick_lowvol_n(t_, n):
+        sc = []
+        for t, (o, h, l, c, v) in S.items():
+            r = [c[k] / c[k - 1] - 1 for k in range(t_ - 251, t_ + 1)]
+            sc.append((st.pstdev(r), t))
+        return [x[1] for x in sorted(sc)[:n]]
+
+    plans = [("G. 低波動 30 檔（近一年每天漲跌最小的）", pick_lowvol),
+             ("H. 買回庫藏股最多 30 檔（股數一年減 2% 以上＋財報健檢）", pick_buyback),
+             ("G＋H. 低波動前 100 檔裡買回庫藏股的", pick_lowvol_bb),
+             ("對照：穩健動能前 15 名＋財報健檢（每月換）", pick_vam),
+             ("對照：全部股票平均（現在的標普 500 成分股）", lambda t_: list(S))]
+    out = ["", "📦 每月換股的組合（%s～%s；月底換股、平均分配、換掉的部位扣 0.3%%）" % (D[ME[0]], D[ME[-1]]),
+           "　⚠️ 名單是現在的標普 500 成分股（已被剔除的爛股不在內），所以要和「全部股票平均」比才公平"]
+    bench = [vb[ME[i + 1]] / vb[ME[i]] - 1 for i in range(len(ME) - 1)]
+    months = [D[ME[i + 1]][:7] for i in range(len(ME) - 1)]
+
+    def summ(rets):
+        eq, peak, mdd, yr = 1.0, 1.0, 0.0, {}
+        for r, m in zip(rets, months):
+            eq *= 1 + r
+            peak = max(peak, eq)
+            mdd = min(mdd, eq / peak - 1)
+            yr[m[:4]] = (1 + yr.get(m[:4], 0)) * (1 + r) - 1
+        return eq ** (12 / len(rets)) - 1, mdd, yr
+    res = {}
+    for nm, fn in plans:
+        rets, prev, last = [], set(), []
+        for i in range(len(ME) - 1):
+            a, b = ME[i], ME[i + 1]
+            pk = [t for t in fn(a) if S[t][3][a] and S[t][3][b]]
+            if not pk:
+                rets.append(vb[b] / vb[a] - 1)  # 沒有符合的就抱 VOO
+                prev = set()
+                continue
+            r = st.mean(S[t][3][b] / S[t][3][a] - 1 for t in pk)
+            turn = len(set(pk) - prev) / len(pk)
+            rets.append(r - COST / 100 * turn)
+            prev, last = set(pk), pk
+        res[nm] = (rets, fn(ME[-1]) if "全部" not in nm else [])
+    cb, mb, yb = summ(bench)
+    for nm, (rets, now) in res.items():
+        c, m, y = summ(rets)
+        win = sum(1 for a, b in zip(rets, bench) if a > b) / len(rets) * 100
+        pos = sum(1 for a in rets if a > 0) / len(rets) * 100
+        out.append("・%s\n　年化 %+.1f%%、最大跌幅 %.0f%%、最差一個月 %+.0f%%、賺錢的月份 %.0f%%、贏 VOO 的月份 %.0f%%\n　每年：%s%s" % (
+            nm, c * 100, m * 100, min(rets) * 100, pos, win, "、".join("%s %+.0f%%" % (k, v * 100) for k, v in sorted(y.items())),
+            "\n　現在的名單：" + "、".join(sorted(now)[:30]) if now else ""))
+    out.append("・對照：一直抱 VOO\n　年化 %+.1f%%、最大跌幅 %.0f%%、最差一個月 %+.0f%%、賺錢的月份 %.0f%%\n　每年：%s" % (
+        cb * 100, mb * 100, min(bench) * 100, sum(1 for a in bench if a > 0) / len(bench) * 100, "、".join("%s %+.0f%%" % (k, v * 100) for k, v in sorted(yb.items()))))
+    return out
+
+
 def main():
     mx = int(sys.argv[sys.argv.index("--max") + 1]) if "--max" in sys.argv else 600
     names = dict(us.UNIVERSE)
@@ -716,6 +828,17 @@ def main():
             rows.append({"name": nm, "n": len(R), "win": len(wins) / len(R) * 100, "avg": st.mean(R), "hold": st.mean(HD)})
             if nowB:
                 L.append("　最近出現：%s" % "、".join(sorted(nowB)[:20]))
+    # ── 每月換股的組合（G 低波動、H 買回庫藏股、對照：穩健動能、全部股票平均、VOO）──
+    try:
+        L.extend(portfolios(S, Q, D, vb, vam, start))
+    except Exception as e:
+        L.append("每月組合回測失敗：%s" % type(e).__name__)
+        log("每月組合回測失敗：", repr(e))
+    try:  # E、F 大盤擇時（us_timing.py）
+        import us_timing
+        L.append(us_timing.report())
+    except Exception as e:
+        L.append("大盤擇時回測失敗：%s" % type(e).__name__)
     # 今天符合的股票
     T = N - 2
     now = defaultdict(list)
