@@ -235,6 +235,26 @@ def regime():
     return below and inv, why
 
 
+# 國安基金護盤股（rescue_study.py：2000～2026 年 10 次護盤、22 檔曾被買的股票，進場日買、抱 120 天比加權指數多賺）
+# 台達電 +31%（9 次贏 7 次）、鴻海 +9%、台積電 +7%（250 天 +19%）、廣達 +5%（250 天 +33%）；金融股大多輸大盤，不列
+RESCUE_PICKS = [("2308", "台達電", "+31%"), ("2317", "鴻海", "+9%"), ("2330", "台積電", "+7%"), ("2382", "廣達", "+5%"), ("2454", "聯發科", "+2%，250 天 +22%")]
+
+
+def rescue_text(data, t):
+    """大跌時列出國安基金最常買、護盤後表現最好的幾檔現況"""
+    by = {x["id"]: x for x in data["stocks"]}
+    out = []
+    for sid, nm, ex in RESCUE_PICKS:
+        x = by.get(sid)
+        if not x or not x["c"][t]:
+            continue
+        c = x["c"]
+        dd = c[t] / max(c[max(0, t - 250):t + 1]) - 1
+        sg = dip_signal(x, t) if t >= 21 else ""
+        out.append("%s %s（%s，離一年高點 %+.0f%%%s）" % (nm, exits.px(c[t]), "護盤後 120 天比大盤多賺 " + ex, dd * 100, "，🟢 " + sg if sg else ""))
+    return "🛡️ 國安基金護盤股（歷次都買、護盤後漲最多）：" + "；".join(out) if out else ""
+
+
 def nightly(data, reg=None):
     """有大跌事件（30 個交易日內）時回傳報告段落，沒有回傳空字串"""
     D, S = data["dates"], data["stocks"]
@@ -262,6 +282,9 @@ def nightly(data, reg=None):
         L.append("⚠️ 系統性衰退警訊：%s。歷史上這種情況大跌後撿了 8 成會再套（2000 網路泡沫、2008 金融海嘯），這波先不撿，名單只列出來觀察" % rwhy)
     else:
         L.append("✅ 判斷是暫時性大跌：%s（歷史上這種情況撿了大多會漲回來）" % rwhy if warn is False else "❔ " + rwhy)
+    rt = rescue_text(data, t)
+    if rt:
+        L.append(rt)
     mb = market_bottom(data, t, t0)
     n = sum(x[1] for x in mb)
     L.append("大盤落地指標 %d／5：%s" % (n, "；".join(("✅" if ok else "⬜") + name + "（" + why + "）" for name, ok, why in mb)))
