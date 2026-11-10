@@ -10,6 +10,11 @@ us_bt.py - 美股策略回測（近 5 年）：台股用的策略搬到美股，
   B. 財報健檢：近 4 季營業現金流為正＋負債比 <60%
   C. 強勢股回檔月線量縮：60 日漲 >20%、碰月線收在上、5 日量 < 20 日量 7 成、月線上揚、站上季線
   D. 穩健動能：近 6 個月漲幅÷波動 排名前 15
+2026-11-10 加測網路上有研究證據的美股策略：
+  A. 財報後漂移＋接近一年高點（新季報 EPS 年增 >25%、收盤在一年高點 5% 內，申報後 3 天內進場）
+  B. RSI(2) 短線超跌（Larry Connors：站上 200 日線、2 日 RSI<5，站回 5 日線就賣，最多 10 天）
+  C. 高毛利品質＋動能（近 4 季毛利÷總資產 ≥30%、120 日漲幅前 30%、站上 200 日線；Novy-Marx）
+  D. 內部人集體買進（SEC 內部人申報資料集：10 天內 ≥2 位內部人公開市場買進 ≥1 萬美元，申報日進場）
 回測：訊號隔天開盤買，抱 20／60 個交易日收盤賣，扣 0.3% 成本（手續費＋匯差），同一檔抱著時不重複買
 用法：python us_bt.py [--max 600] > us_bt_latest.txt
 """
@@ -86,6 +91,77 @@ def cik_map():
         time.sleep(1)
     r.raise_for_status()
     return {v["ticker"].upper().replace(".", "-"): int(v["cik_str"]) for v in r.json().values()}
+
+
+def insider_clusters(tickers, years=YEARS + 1):
+    """D. 內部人集體買進：SEC「Insider Transactions Data Sets」（每季一個 zip：SUBMISSION／REPORTINGOWNER／NONDERIV_TRANS）
+    公開市場買進（交易代碼 P、取得 A）且金額 ≥ 1 萬美元；同一檔 10 天內 ≥ 2 位不同內部人買進＝集體買進，訊號日＝第 2 位的申報日（公開那天）
+    回傳 {代號: [(申報日, 人數, 總金額美元)]}"""
+    import csv
+    import io
+    import zipfile
+    want = set(tickers)
+    buys = defaultdict(list)  # 代號 → [(申報日, 內部人 CIK, 金額)]
+    today = dt.date.today()
+    for y in range(today.year - years, today.year + 1):
+        for qn in range(1, 5):
+            if dt.date(y, qn * 3 - 2, 1) > today:
+                continue
+            url = "https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/%dq%d_form345.zip" % (y, qn)
+            try:
+                r = requests.get(url, headers=SEC_UA, timeout=180)
+                if r.status_code != 200:
+                    log("內部人資料 %dQ%d：HTTP %d" % (y, qn, r.status_code))
+                    continue
+                z = zipfile.ZipFile(io.BytesIO(r.content))
+                rd = lambda nm: csv.DictReader(io.TextIOWrapper(z.open(next(n for n in z.namelist() if n.upper().endswith(nm))), encoding="utf-8", errors="replace"), delimiter="\t")
+                sub = {}
+                for row in rd("SUBMISSION.TSV"):
+                    t = (row.get("ISSUERTRADINGSYMBOL") or "").strip().upper().replace(".", "-")
+                    if t in want:
+                        sub[row["ACCESSION_NUMBER"]] = (t, row.get("FILING_DATE", ""))
+                owner = {}
+                for row in rd("REPORTINGOWNER.TSV"):
+                    if row["ACCESSION_NUMBER"] in sub:
+                        owner.setdefault(row["ACCESSION_NUMBER"], row.get("RPTOWNERCIK", ""))
+                amt = defaultdict(float)
+                for row in rd("NONDERIV_TRANS.TSV"):
+                    a = row["ACCESSION_NUMBER"]
+                    if a in sub and row.get("TRANS_CODE") == "P" and row.get("TRANS_ACQUIRED_DISP_CD") == "A":
+                        try:
+                            amt[a] += float(row.get("TRANS_SHARES") or 0) * float(row.get("TRANS_PRICEPERSHARE") or 0)
+                        except ValueError:
+                            pass
+                n = 0
+                for a, v in amt.items():
+                    if v >= 10000:
+                        t, fd = sub[a]
+                        for fmt in ("%d-%b-%Y", "%Y-%m-%d", "%m/%d/%Y"):
+                            try:
+                                fd = dt.datetime.strptime(fd.strip().title(), fmt).date().isoformat()
+                                break
+                            except ValueError:
+                                continue
+                        buys[t].append((fd, owner.get(a, a), v))
+                        n += 1
+                log("內部人資料 %dQ%d：公開市場買進 %d 筆" % (y, qn, n))
+            except Exception as e:
+                log("內部人資料 %dQ%d 失敗：%s" % (y, qn, type(e).__name__))
+            time.sleep(0.5)
+    out = {}
+    for t, L in buys.items():
+        L.sort()
+        ev, last = [], ""
+        for i, (fd, _, _) in enumerate(L):
+            lo = (dt.date.fromisoformat(fd) - dt.timedelta(days=10)).isoformat()
+            win = [x for x in L[:i + 1] if x[0] >= lo]
+            who = {x[1] for x in win}
+            if len(who) >= 2 and (not last or days(last, fd) > 30):
+                ev.append((fd, len(who), sum(x[2] for x in win)))
+                last = fd
+        if ev:
+            out[t] = ev
+    return out
 
 
 def days(a, b):
@@ -436,6 +512,12 @@ def main():
             except Exception:
                 pass
             time.sleep(0.12)  # SEC 每秒最多 10 次
+    try:
+        INS = insider_clusters(tick)
+        log("內部人集體買進：%d 檔、%d 次" % (len(INS), sum(len(v) for v in INS.values())))
+    except Exception as e:
+        log("內部人資料抓不到：", type(e).__name__)
+        INS = {}
     bench = prices("VOO")[0]
     log("價格 %d 檔、財報 %d 檔" % (len(P), sum(1 for v in Q.values() if v)))
     # 共同日期
@@ -505,6 +587,33 @@ def main():
             fq = q_all[:qi]
             extra(sig, t, t_, o, h, l, c, v, IND, fq, rc[t_], dvt[t_], B)
             dip_signals(sig, t, t_, o, h, l, c, v, fq, B, vb)
+            # A. 財報後漂移＋接近一年高點：新季報申報後 3 個交易日內、EPS 年增 >25%（且為正）、收盤在一年高點 5% 內
+            if fq and D[t_ - 3] < fq[-1]["filed"] <= day:
+                g = growth(fq[-1]["eps"], (yoy(fq, len(fq) - 1) or {}).get("eps"))
+                near = c[t_] >= max(c[t_ - 251:t_ + 1]) * 0.95
+                if g is not None and g > 25 and (fq[-1]["eps"] or 0) > 0:
+                    sig["A. 財報大成長（EPS 年增 >25%）"][t].append(t_)
+                    if near:
+                        sig["A. 財報後漂移＋接近一年高點"][t].append(t_)
+                        if B is not False:
+                            sig["A. 財報後漂移＋一年高點＋財報健檢"][t].append(t_)
+            # C. 品質（毛利÷總資產）＋動能：近 4 季毛利合計÷總資產 ≥ 30%、近 120 日漲幅前 30%、站上 200 日線
+            if len(fq) >= 4 and t in rs[t_] and c[t_] > ma(c, 200, t_):
+                gps = [x["gp"] for x in fq[-4:]]
+                if all(x is not None for x in gps) and fq[-1]["assets"]:
+                    gpa = sum(gps) / fq[-1]["assets"]
+                    if gpa >= 0.30:
+                        sig["C. 高毛利品質＋動能"][t].append(t_)
+                        if B is not False:
+                            sig["C. 高毛利品質＋動能＋財報健檢"][t].append(t_)
+            # D. 內部人集體買進：申報日（或之後第一個交易日）
+            for fd, nn, amt_ in INS.get(t, []):
+                if D[t_ - 1] < fd <= day:
+                    sig["D. 內部人集體買進（10 天內 ≥2 人）"][t].append(t_)
+                    if nn >= 3:
+                        sig["D. 內部人集體買進（≥3 人）"][t].append(t_)
+                    if B is not False:
+                        sig["D. 內部人集體買進＋財報健檢"][t].append(t_)
             m20, m60 = ma(c, 20, t_), ma(c, 60, t_)
             vol20 = sum(v[t_ - 19:t_ + 1]) / 20
             sig["隨便買（全部股票每天都買）"][t].append(t_)
@@ -566,6 +675,47 @@ def main():
                      "n60": len(r60), "win60": sum(x > 0 for x in r60) / len(r60) * 100 if r60 else None, "avg60": st.mean(r60) if r60 else None,
                      "n120": len(r120), "win120": sum(x > 0 for x in r120) / len(r120) * 100 if r120 else None, "avg120": st.mean(r120) if r120 else None,
                      "voo60": st.mean(b60) if b60 else None, "voo120": st.mean(b120) if b120 else None})
+    # B. RSI(2) 短線超跌（Larry Connors）：站上 200 日線、2 日 RSI < 5 → 隔天開盤買，收盤站上 5 日線就隔天開盤賣（最多 10 天）
+    def rsi2(c, t_):
+        up = sum(max(c[i] - c[i - 1], 0) for i in range(t_ - 1, t_ + 1))
+        dn = sum(max(c[i - 1] - c[i], 0) for i in range(t_ - 1, t_ + 1))
+        return 100 if dn == 0 else 100 - 100 / (1 + up / dn)
+    for nm, need_q in (("B. RSI(2) 短線超跌（站上 200 日線）", False), ("B. RSI(2) 短線超跌＋財報健檢", True)):
+        R, HD, RB, nowB = [], [], [], []
+        for t, (o, h, l, c, v) in S.items():
+            q_all = Q.get(t) or []
+            t_ = start
+            while t_ < N - 2:
+                if c[t_] > ma(c, 200, t_) and rsi2(c, t_) < 5:
+                    if need_q:
+                        fq = [x for x in q_all if x["filed"] <= D[t_]]
+                        if not fq or canslim(fq)[1] is False:
+                            t_ += 1
+                            continue
+                    if t_ >= N - 3:
+                        nowB.append(t)
+                        break
+                    e = o[t_ + 1]
+                    k = t_ + 1
+                    while k < min(N - 2, t_ + 10) and not (c[k] > ma(c, 5, k)):
+                        k += 1
+                    x = o[k + 1] or c[k]
+                    if e and x:
+                        R.append((x / e - 1) * 100 - COST)
+                        HD.append(k + 1 - (t_ + 1))
+                        RB.append((vb[k + 1] / vb[t_ + 1] - 1) * 100)
+                    t_ = k + 1
+                    continue
+                t_ += 1
+        if R:
+            wins = [x for x in R if x > 0]
+            loss = [x for x in R if x <= 0]
+            L.append("・%s\n　%d 次、勝率 %.0f%%、平均 %+.2f%%（賺的平均 %+.1f%%、賠的平均 %+.1f%%）、平均抱 %.1f 天、最差 %+.0f%%（同期抱 VOO 平均 %+.2f%%）" % (
+                nm, len(R), len(wins) / len(R) * 100, st.mean(R), st.mean(wins) if wins else 0, st.mean(loss) if loss else 0,
+                st.mean(HD), min(R), st.mean(RB)))
+            rows.append({"name": nm, "n": len(R), "win": len(wins) / len(R) * 100, "avg": st.mean(R), "hold": st.mean(HD)})
+            if nowB:
+                L.append("　最近出現：%s" % "、".join(sorted(nowB)[:20]))
     # 今天符合的股票
     T = N - 2
     now = defaultdict(list)
