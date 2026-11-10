@@ -239,10 +239,7 @@ def report(cfg):
             L.append("・%s %s：%s（今天 %+.1f%%）｜%s｜5 年年化 %s、最慘跌 %.0f%%｜➜ %s" % (
                 t, names.get(t, ""), _p(x["c"]), x["chg"], "、".join(why) or "—", "%+.1f%%" % x["cagr"] if x["cagr"] is not None else "—", x["mdd"], txt))
         L.append("規則：殖利率、5 年都配息、離高點跌幅、RSI 超跌、5 年報酬、位階打分數；股利被砍的不列。想買哪檔先用「查美股」看 5 年回測")
-    w = watch_text()
-    if w:
-        L.append("")
-        L.append(w)
+    # 美股穩健動能觀察名單還在測試（2026-11-10 使用者要求先不發），watch_text() 保留給之後用
     L.append("依 Yahoo Finance／FinMind 公開資料與固定規則整理，不是投資建議；美股還有約 30% 股利稅（美國先扣）與換匯成本。")
     return "\n".join(L)
 
