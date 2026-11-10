@@ -222,6 +222,63 @@ def ma(c, n, t):
     return sum(c[t - n + 1:t + 1]) / n
 
 
+def rsi(c, t, n=14):
+    up = sum(max(c[i] - c[i - 1], 0) for i in range(t - n + 1, t + 1))
+    dn = sum(max(c[i - 1] - c[i], 0) for i in range(t - n + 1, t + 1))
+    return 100 if dn == 0 else 100 - 100 / (1 + up / dn)
+
+
+def step(p):
+    """整數關卡間距：股價 45 → 5（關卡 50）、175 → 50（關卡 200）、1,200 → 500"""
+    import math
+    e = 10 ** math.floor(math.log10(p))
+    return e / 2 if p < e * 5 else e
+
+
+def dip_signals(sig, t, t_, o, h, l, c, v, q, B, vb):
+    """好公司跌深抄底（美股版「大跌撿好股」，使用者 2026-11-10 提議，像輝達這種賺很多、跌很深的大公司）
+    好公司：近 4 季 EPS 合計 > 0、而且比一年前多（還在成長）、財報健檢沒有不過
+    跌深：比近一年高點跌 25% 以上（另算 35% 的版本）
+    不是系統性衰退：標普 500（VOO）在 200 日線上（另算不看大盤的版本）
+    進場訊號（比較哪個好）：每天都買、超賣往上勾、破整數關卡＋超賣背離（使用者的第 1 批）、站回 5 日線（第 2 批）"""
+    import math
+    if len(q) < 8:
+        return
+    e4, e8 = [x["eps"] for x in q[-4:]], [x["eps"] for x in q[-8:-4]]
+    if not all(x is not None for x in e4 + e8) or sum(e4) <= 0 or sum(e4) < sum(e8) or B is False:
+        return
+    hi = max(c[t_ - 251:t_ + 1])
+    dd = c[t_] / hi - 1
+    if dd > -0.25:
+        return
+    add = lambda nm: sig[nm][t].append(t_)
+    ok_mkt = vb[t_] > ma(vb, 200, t_)
+    r0, r1 = rsi(c, t_), rsi(c, t_ - 1)
+    hook = r1 < 30 and r0 > r1
+    lo20 = min(c[t_ - 20:t_])
+    i_lo = c.index(lo20, t_ - 20, t_)
+    div = c[t_] <= lo20 and r0 > rsi(c, i_lo) + 2
+    st_ = step(c[t_])
+    lv = math.ceil(c[t_] / st_) * st_
+    broke = c[t_] < lv and any(c[i] > lv for i in range(t_ - 10, t_))  # 近 10 天內跌破現價上面最近的整數關卡
+    m5 = ma(c, 5, t_)
+    back5 = c[t_] > m5 and c[t_ - 1] > ma(c, 5, t_ - 1) and c[t_ - 2] <= ma(c, 5, t_ - 2)
+    add("抄底：好公司跌深 25%（每天都買，不看大盤）")
+    if not ok_mkt:
+        return
+    add("抄底：好公司跌深 25%（每天都買）")
+    if dd <= -0.35:
+        add("抄底：好公司跌深 35%（每天都買）")
+    if hook:
+        add("抄底：跌深 25%＋超賣往上勾")
+    if broke and (div or hook):
+        add("抄底：跌深 25%＋破整數關卡＋超賣背離（你的第 1 批）")
+        if dd <= -0.35:
+            add("抄底：跌深 35%＋破整數關卡＋超賣背離")
+    if back5:
+        add("抄底：跌深 25%＋站回 5 日線（第 2 批）")
+
+
 def ema(x, n):
     out, k, e = [None] * len(x), 2 / (n + 1), None
     for i, v in enumerate(x):
@@ -430,6 +487,7 @@ def main():
     for t_ in range(start, N):
         arr = sorted((S[t][3][t_] / S[t][3][t_ - 120], t) for t in S)
         rs[t_] = set(x[1] for x in arr[int(len(arr) * 0.7):])
+    vb = [x[4] for x in bench]
     sig = defaultdict(lambda: defaultdict(list))
     for t, (o, h, l, c, v) in S.items():
         IND = indicators(h, l, c)
@@ -446,6 +504,7 @@ def main():
             A, B, Bo = cs
             fq = q_all[:qi]
             extra(sig, t, t_, o, h, l, c, v, IND, fq, rc[t_], dvt[t_], B)
+            dip_signals(sig, t, t_, o, h, l, c, v, fq, B, vb)
             m20, m60 = ma(c, 20, t_), ma(c, 60, t_)
             vol20 = sum(v[t_ - 19:t_ + 1]) / 20
             sig["隨便買（全部股票每天都買）"][t].append(t_)
@@ -473,7 +532,7 @@ def main():
                     sig["穩健動能＋財報健檢"][t].append(t_)
     # 回測
     def bt(s, hold):
-        R, Y = [], defaultdict(list)
+        R, Y, RB = [], defaultdict(list), []
         for t, ts in s.items():
             o, h, l, c, v = S[t]
             last = -1
@@ -485,24 +544,28 @@ def main():
                     r = (x / e - 1) * 100 - COST
                     R.append(r)
                     Y[D[t_][:4]].append(r)
+                    RB.append((vb[t_ + hold] / vb[t_ + 1] - 1) * 100)  # 同一段時間抱 VOO
                     last = t_ + hold
-        return R, Y
-    vb = [x[4] for x in bench]
+        return R, Y, RB
     v0 = vb[start]
     L = ["🇺🇸 美股策略回測（近 %d 年：%s～%s，%d 檔有價格、%d 檔有 SEC 財報；只有你看得到）" % (YEARS, D[start], D[-1], len(S), sum(1 for v in Q.values() if v)),
-         "方法：訊號隔天開盤買、抱 20／60 個交易日收盤賣、扣 0.3%% 成本；同期 VOO（標普 500）買進抱著 %+.0f%%" % ((vb[-1] / v0 - 1) * 100), ""]
+         "方法：訊號隔天開盤買、抱 20／60／120 個交易日收盤賣、扣 0.3%% 成本；同期 VOO（標普 500）買進抱著 %+.0f%%" % ((vb[-1] / v0 - 1) * 100), ""]
     rows = []
     for nm, s in sig.items():
-        r20, y20 = bt(s, 20)
-        r60, _ = bt(s, 60)
+        r20, y20, b20 = bt(s, 20)
+        r60, _, b60 = bt(s, 60)
+        r120, _, b120 = bt(s, 120)
         if not r20:
             L.append("・%s：這 5 年沒有訊號" % nm)
             continue
-        f = lambda R: "%d 次、勝率 %.0f%%、平均 %+.1f%%、中位 %+.1f%%" % (len(R), sum(x > 0 for x in R) / len(R) * 100, st.mean(R), st.median(R)) if R else "—"
+        f = lambda R, Bm: "%d 次、勝率 %.0f%%、平均 %+.1f%%、中位 %+.1f%%、最差 %+.0f%%（同期抱 VOO 平均 %+.1f%%）" % (
+            len(R), sum(x > 0 for x in R) / len(R) * 100, st.mean(R), st.median(R), min(R), st.mean(Bm)) if R else "—"
         yrs = "、".join("%s %+.0f%%" % (y, st.mean(v)) for y, v in sorted(y20.items()))
-        L.append("・%s\n　抱 20 天：%s\n　抱 60 天：%s\n　每年平均（抱 20 天）：%s" % (nm, f(r20), f(r60), yrs))
+        L.append("・%s\n　抱 20 天：%s\n　抱 60 天：%s\n　抱 120 天：%s\n　每年平均（抱 20 天）：%s" % (nm, f(r20, b20), f(r60, b60), f(r120, b120), yrs))
         rows.append({"name": nm, "n20": len(r20), "win20": sum(x > 0 for x in r20) / len(r20) * 100, "avg20": st.mean(r20),
-                     "n60": len(r60), "win60": sum(x > 0 for x in r60) / len(r60) * 100 if r60 else None, "avg60": st.mean(r60) if r60 else None})
+                     "n60": len(r60), "win60": sum(x > 0 for x in r60) / len(r60) * 100 if r60 else None, "avg60": st.mean(r60) if r60 else None,
+                     "n120": len(r120), "win120": sum(x > 0 for x in r120) / len(r120) * 100 if r120 else None, "avg120": st.mean(r120) if r120 else None,
+                     "voo60": st.mean(b60) if b60 else None, "voo120": st.mean(b120) if b120 else None})
     # 今天符合的股票
     T = N - 2
     now = defaultdict(list)
