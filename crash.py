@@ -279,6 +279,69 @@ def nightly(data, reg=None):
     return "\n".join(L)
 
 
+def grows(s, day):
+    """近 4 季 EPS 合計 > 0，而且不比一年前少（還在賺、還在成長）"""
+    q = [x for x in (s.get("q") or []) if qpub(x["q"]) <= day]
+    if len(q) < 8:
+        return False
+    e4, e8 = [x["eps"] for x in q[-4:]], [x["eps"] for x in q[-8:-4]]
+    return all(x is not None for x in e4 + e8) and sum(e4) > 0 and sum(e4) >= sum(e8)
+
+
+def dip_signal(s, t):
+    """個股的第 1 批訊號：近 10 天跌破現價上面最近的整數關卡＋超賣背離（或 RSI<30 往上勾）"""
+    c = s["c"]
+    r0, r1 = exits.rsi(c, t), exits.rsi(c, t - 1)
+    hook = r1 < 30 and r0 > r1
+    lo20 = min(c[t - 20:t])
+    div = c[t] <= lo20 and r0 > exits.rsi(c, c.index(lo20, t - 20, t)) + 2
+    st = step(c[t])
+    lv = math.ceil(c[t] / st) * st
+    broke = c[t] < lv and any(c[i] > lv for i in range(t - 10, t))
+    return ("跌破整數關卡 %s＋%s（RSI %.0f）" % (exits.px(lv), "超賣背離" if div else "超賣往上勾", r0)) if broke and (div or hook) else ""
+
+
+def dip_nightly(data, reg=None, look=3):
+    """好公司跌深抄底（使用者 2026-11-10 要的台股版；不用等大盤大跌，個股跌深就看）
+    好公司：近 4 季 EPS>0 且比一年前多、財報健檢通過、均量 ≥500 張；跌深：比近一年高點跌 25% 以上
+    買點：使用者的第 1 批（破整數關卡＋超賣背離）。回測（2026-03～11）：抱 60 天勝率 83%、平均 +31%、最差 −8%；
+    跌深 25% 每天買 82%／+29%／最差 −28%；隨便買 63%／+23%／最差 −60%。系統性衰退警訊時只列不買"""
+    D, S = data["dates"], data["stocks"]
+    t = len(D) - 1
+    if t < 260:
+        return ""
+    warn, rwhy = reg if reg is not None else regime()
+    set_rank(data, t)
+    hits, watch = [], []
+    for s in S:
+        c, v = s["c"], s["v"]
+        if s["id"].startswith("00") or not c[t] or sum(v[t - 20:t]) / 20 < 500:
+            continue
+        dd = c[t] / max(c[t - 250:t + 1]) - 1
+        if dd > -0.25 or not grows(s, D[t]) or fin_health.check(s, D[t])[0] is not True:
+            continue
+        sig = next(((u, w) for u in range(t, t - look, -1) for w in [dip_signal(s, u)] if w), None)
+        inst = sum((s["fi"][i] or 0) + (s["it"][i] or 0) for i in range(t - 4, t + 1))
+        bg = big(s, t, data_rank, 50)
+        # 排序：權值股（市值前 50）→ 法人 5 日買超 → 跌得深
+        key = (0 if bg else 1, 0 if inst > 0 else 1, dd)
+        (hits if sig else watch).append((key, s, sig, dd, inst, bg))
+    if not hits and not watch:
+        return ""
+    L = ["🪝 好公司跌深抄底（比一年高點跌 25%% 以上、還在賺錢成長、財報健檢過）：%d 檔有第 1 批買訊、%d 檔觀察中" % (len(hits), len(watch))]
+    if warn:
+        L.append("⚠️ 系統性衰退警訊（%s）：先不撿，只觀察" % rwhy)
+    tag = lambda bg, inst: ("權值股・" if bg else "") + "法人 5 日 %s 張" % "{:+,}".format(inst)
+    for _, s, (u, w), dd, inst, bg in sorted(hits, key=lambda x: x[0])[:8]:
+        L.append("・🟢 %s %s %s｜離一年高點 %+.0f%%｜%s｜%s %s%s" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst), D[u][5:], w,
+                                                            "（先不買）" if warn else "，可以買第 1 批 30%"))
+    for _, s, _, dd, inst, bg in sorted(watch, key=lambda x: x[0])[:6]:
+        L.append("・⚪ %s %s %s｜離一年高點 %+.0f%%｜%s｜等破整數關卡＋超賣背離" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst)))
+    L.append("排序：權值股（市值前 50）→ 法人買超 → 跌得深；只列前 8 檔買訊、6 檔觀察")
+    L.append("第 2 批等站穩 5 日線＋融資大退、第 3 批等帶量長紅突破月線；回測第 1 批抱 60 天勝率 83%、平均 +31%、最差 −8%（隨便買 63%、+23%）；每檔停損買進前跟你討論。")
+    return "\n".join(L)
+
+
 def backtest(data, holds=(20, 60)):
     D, S = data["dates"], data["stocks"]
     m = next(x["c"] for x in S if x["id"] == "0050")
