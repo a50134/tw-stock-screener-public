@@ -1,0 +1,21 @@
+name: 抄底想法回測（融資、負乖離、年線）
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 取每晚資料
+        run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
+      - name: 近一年半（含法人、融資、財報）
+        run: python tape_bt.py data.json
+      - name: 2010 年起（只有價量）
+        run: python tape_bt.py data.json --long
