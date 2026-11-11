@@ -178,6 +178,27 @@ def _p(x):
     return ("%.2f" % x).rstrip("0").rstrip(".")
 
 
+def timing_alert(px=None):
+    """SPY 10 個月均線警報燈（Meb Faber）：用月線還原價，最新一個月用到今天為止的價格
+    跌破＝🚨 警報（歷史上一年約 1～2 次；2008 躲掉 −37%，但 2022 這種緩跌沒用）；離均線 3% 內＝🟡 接近"""
+    if px is None:
+        import us_timing
+        px = us_timing.monthly("SPY")
+    ms = sorted(px)
+    if len(ms) < 12:
+        return ""
+    now, avg = px[ms[-1]], sum(px[m] for m in ms[-10:]) / 10
+    prev_in = px[ms[-2]] > sum(px[m] for m in ms[-11:-1]) / 10  # 上個月底在不在均線上
+    gap = (now / avg - 1) * 100
+    if now < avg:
+        return ("・🚨 大盤警報：SPY %s 跌破 10 個月均線 %s（%+.1f%%）%s｜歷史上這是空頭可能開始的訊號（2008 年靠它躲掉大跌），但也常是假警報（一年約 1～2 次）。"
+                "建議：先停止加碼、把新資金留著；月底收盤仍在均線下再考慮把 VOO 減 1/3～1/2 換短期美債（SHY）；站回均線就買回" % (
+                    _p(now), _p(avg), gap, "（上個月底還在均線上，本月剛跌破）" if prev_in else "（上個月底就已跌破）"))
+    if gap < 3:
+        return "・🟡 大盤警報燈：SPY %s 只比 10 個月均線 %s 高 %.1f%%，快跌破了，先不要大筆加碼" % (_p(now), _p(avg), gap)
+    return "・🟢 大盤警報燈：SPY %s 在 10 個月均線 %s 之上（+%.1f%%），照常抱 VOO" % (_p(now), _p(avg), gap)
+
+
 def report(cfg):
     U = cfg.get("us") or {}
     budget = float(U.get("budget_twd") or 100000)
@@ -202,6 +223,12 @@ def report(cfg):
     if v:
         L.append("・大盤 VOO %s（今天 %+.1f%%）：離 52 週高點 %.0f%%，%s 200 日均線；%s" % (
             _p(v["c"]), v["chg"], v["drop"], "站上" if v["c"] > v["ma200"] else "跌破", "大跌後分批進場，不要一次買完" if v["drop"] <= -10 else "還在正常範圍"))
+    try:  # 大盤警報燈：SPY 對 10 個月均線（只給自己；回測 2003 年起最大跌幅 −25%，一直抱 −51%，但每年少賺約 2%）
+        a = timing_alert()
+        if a:
+            L.append(a)
+    except Exception as e:
+        print("美股 10 個月均線警報失敗：", type(e).__name__, file=sys.stderr, flush=True)
     used = 0.0
     if hold:
         L.append("")
