@@ -1,0 +1,192 @@
+"""
+lev_bt.py - 0050 正2（00631L）什麼時候買的回測（2026-11-11 使用者問的）
+
+資料：Yahoo Finance 還原股價（0050.TW、00631L.TW；GitHub Actions 上跑）。
+正2 在 2014-10 才上市，更早的年份（含 2008、2011）用「0050 每天漲跌 × 2，再扣每年約 1% 費用」模擬，
+並先跟真的正2 在重疊期間對照，確認模擬值可不可信。
+
+比較的買法（大跌事件＝0050 5 日跌 6% 以上，同 crash.py）：
+  甲. 大跌隔天就買（接刀）
+  乙. 等反彈後回跌 6% 以上、而且收盤沒破這波低點才買（等回跌）；先破低就不買
+  丙. 等 0050 站回月線和季線、月線往上才買（等轉強）
+  丁. 乙或丙哪個先到就買
+每種買法看正2 抱 20／60／120 天的勝率、平均、最差，持有期間最多賠多少，以及同樣時間點買 0050 的結果。
+另外看長期規則：一直抱正2、只在 0050 站上季線／年線時抱正2（其餘時間空手）、一直抱 0050。
+
+用法：python lev_bt.py
+"""
+import datetime as dt
+import sys
+
+import requests
+
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
+HOLDS = (20, 60, 120)
+COST = 0.003
+WAIT = 40  # 大跌後最多等幾個交易日
+
+
+def yahoo(sym):
+    for host in ("query1", "query2"):
+        try:
+            r = requests.get("https://%s.finance.yahoo.com/v8/finance/chart/%s?period1=1104537600&period2=%d&interval=1d&includeAdjustedClose=true"
+                             % (host, sym, int(dt.datetime.now().timestamp())), headers=UA, timeout=40)
+            r.raise_for_status()
+            res = r.json()["chart"]["result"][0]
+            adj = res["indicators"]["adjclose"][0]["adjclose"]
+            return {dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%d"): adj[i]
+                    for i, ts in enumerate(res.get("timestamp") or []) if adj[i]}
+        except Exception as e:
+            print("  ! %s 抓取失敗（%s）：%s" % (sym, host, e), file=sys.stderr)
+    return {}
+
+
+def clean(D, c):
+    """去掉 Yahoo 偶爾出現的壞資料（單日漲跌超過 25% 視為錯誤，沿用前一天）"""
+    out = [c[0]]
+    for i in range(1, len(c)):
+        out.append(out[-1] if abs(c[i] / out[-1] - 1) > 0.25 else c[i])
+    return out
+
+
+def ma(c, n, t):
+    return sum(c[t - n + 1:t + 1]) / n if t >= n - 1 else None
+
+
+def stat(L):
+    if not L:
+        return "0 筆"
+    v = sorted(L)
+    return "%2d 筆｜勝率 %3.0f%%｜平均 %+6.1f%%｜中位數 %+6.1f%%｜最差 %+4.0f%%" % (
+        len(v), 100 * sum(x > 0 for x in v) / len(v), 100 * sum(v) / len(v), 100 * v[len(v) // 2], 100 * v[0])
+
+
+def curve_stats(eq, D):
+    yrs = (dt.date.fromisoformat(D[-1]) - dt.date.fromisoformat(D[0])).days / 365.25
+    pk, mdd = eq[0], 0
+    for x in eq:
+        pk = max(pk, x)
+        mdd = min(mdd, x / pk - 1)
+    return "年化 %+5.1f%%｜最大跌幅 %4.0f%%｜1 元變 %.1f 元" % (100 * ((eq[-1] / eq[0]) ** (1 / yrs) - 1), 100 * mdd, eq[-1] / eq[0])
+
+
+def main():
+    a, b = yahoo("0050.TW"), yahoo("00631L.TW")
+    if not a:
+        print("0050 抓不到")
+        return
+    D = sorted(a)
+    m = clean(D, [a[d] for d in D])
+    # 模擬正2：每天 2 倍、每年扣 1%
+    sim = [100.0]
+    for i in range(1, len(D)):
+        sim.append(sim[-1] * (1 + 2 * (m[i] / m[i - 1] - 1) - 0.01 / 250))
+    real_d = [d for d in D if d in b]
+    L2 = list(sim)
+    if real_d:
+        i0 = D.index(real_d[0])
+        rc = clean(real_d, [b[d] for d in real_d])
+        rmap = dict(zip(real_d, rc))
+        k = sim[i0] / rc[0]
+        prev = sim[i0]
+        for i in range(i0, len(D)):
+            prev = rmap[D[i]] * k if D[i] in rmap else prev
+            L2[i] = prev
+        yrs = (dt.date.fromisoformat(D[-1]) - dt.date.fromisoformat(D[i0])).days / 365.25
+        print("0050 資料 %s～%s（%d 天）；真的正2 從 %s 開始" % (D[0], D[-1], len(D), real_d[0]))
+        print("模擬對照（%s 之後）：真的正2 年化 %+.1f%%、模擬 %+.1f%% → 更早的年份用模擬值" % (
+            real_d[0], 100 * ((rc[-1] / rc[0]) ** (1 / yrs) - 1), 100 * ((sim[-1] / sim[i0]) ** (1 / yrs) - 1)))
+    n = len(D)
+
+    # ---- 大跌事件 ----
+    ev, last = [], -99
+    for t in range(5, n):
+        r = m[t] / m[t - 5] - 1
+        if -0.4 < r <= -0.06:
+            if t - last > 5:
+                ev.append(t)
+            last = t
+    ev = [t for t in ev if t >= 70]
+    print("\n大跌事件（0050 5 日跌 6%% 以上）共 %d 次：%s" % (len(ev), "、".join(D[t] for t in ev)))
+
+    def entry_b(t0):
+        """乙：反彈後從高點回跌 6% 以上且沒破低 → 買進日；先破低回傳 None"""
+        lo, pk, bounced = m[t0], m[t0], False
+        for t in range(t0 + 1, min(t0 + WAIT, n - 1)):
+            if not bounced:
+                if m[t] < lo:
+                    lo = m[t]
+                    pk = m[t]
+                pk = max(pk, m[t])
+                if pk / lo - 1 >= 0.06:
+                    bounced = True
+                continue
+            if m[t] < lo:
+                return None
+            pk = max(pk, m[t])
+            if m[t] / pk - 1 <= -0.06:
+                return t
+        return None
+
+    def entry_c(t0):
+        for t in range(t0 + 1, min(t0 + WAIT, n - 1)):
+            m20, m20p, m60 = ma(m, 20, t), ma(m, 20, t - 5), ma(m, 60, t)
+            if m[t] > m20 and m[t] > m60 and m20 > m20p:
+                return t
+        return None
+
+    def entry_d(t0):
+        x = [e for e in (entry_b(t0), entry_c(t0)) if e]
+        return min(x) if x else None
+
+    rules = (("甲. 大跌隔天就買", lambda t0: t0), ("乙. 等回跌 6% 且沒破低", entry_b), ("丙. 等站回月線季線", entry_c), ("丁. 乙或丙先到", entry_d))
+    print("\n【大跌後買正2】（訊號隔天收盤買，扣 0.3% 成本）")
+    detail = {}
+    for name, f in rules:
+        E = [(t0, f(t0)) for t0 in ev]
+        got = [(t0, e) for t0, e in E if e is not None and e + 1 < n]
+        print("\n%s：%d 次大跌裡買到 %d 次，平均等 %.0f 天" % (name, len(ev), len(got), sum(e - t0 for t0, e in got) / max(1, len(got))))
+        for H in HOLDS:
+            r2 = [L2[e + 1 + H] / L2[e + 1] - 1 - COST for _, e in got if e + 1 + H < n]
+            r1 = [m[e + 1 + H] / m[e + 1] - 1 - COST for _, e in got if e + 1 + H < n]
+            dd = [min(L2[e + 1:e + 2 + H]) / L2[e + 1] - 1 for _, e in got if e + 1 + H < n]
+            print("  抱 %3d 天｜正2：%s｜期間最多賠 平均 %+.0f%%、最慘 %+.0f%%" % (H, stat(r2), 100 * sum(dd) / max(1, len(dd)), 100 * min(dd or [0])))
+            print("          ｜0050：%s" % stat(r1))
+        detail[name] = dict(E)
+    print("\n【每次大跌的明細】正2 抱 60 天報酬（— 表示沒買到或還沒滿 60 天）")
+    print("大跌日       甲隔天買   乙等回跌   丙等轉強   之後 60 天 0050 最多再跌")
+    for t0 in ev:
+        row = []
+        for name, _ in rules[:3]:
+            e = detail[name][t0]
+            row.append("%+5.0f%%" % (100 * (L2[e + 61] / L2[e + 1] - 1)) if e is not None and e + 61 < n else "   —  ")
+        more = "%+.0f%%" % (100 * (min(m[t0 + 1:t0 + 62]) / m[t0] - 1)) if t0 + 2 < n else "—"
+        print("%s   %s     %s     %s     %s" % (D[t0], row[0], row[1], row[2], more))
+
+    # ---- 長期規則 ----
+    print("\n【長期抱法比較】（%s 起，換手一次扣 0.3%%）" % D[250])
+    s0 = 250
+
+    def run(cond):
+        eq, held = [1.0], False
+        for t in range(s0 + 1, n):
+            x = eq[-1] * (L2[t] / L2[t - 1] if held else 1)
+            want = cond(t)
+            if want != held:
+                x *= 1 - COST
+                held = want
+            eq.append(x)
+        return eq
+
+    DD = D[s0:]
+    print("  一直抱 0050：%s" % curve_stats([m[t] / m[s0] for t in range(s0, n)], DD))
+    print("  一直抱正2：%s" % curve_stats([L2[t] / L2[s0] for t in range(s0, n)], DD))
+    print("  0050 在季線（60 日）上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 60, t)), DD))
+    print("  0050 在年線（240 日）上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 240, t)), DD))
+    print("  0050 在月線和季線上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 20, t) and m[t] > ma(m, 60, t)), DD))
+    t = n - 1
+    print("\n現在（%s）：0050 月線 %s、季線 %s、年線 %s" % (D[t], "上" if m[t] > ma(m, 20, t) else "下", "上" if m[t] > ma(m, 60, t) else "下", "上" if m[t] > ma(m, 240, t) else "下"))
+
+
+if __name__ == "__main__":
+    main()
