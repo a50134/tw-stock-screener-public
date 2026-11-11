@@ -240,6 +240,34 @@ def regime():
 RESCUE_PICKS = [("2308", "台達電", "+31%"), ("2317", "鴻海", "+9%"), ("2330", "台積電", "+7%"), ("2382", "廣達", "+5%"), ("2454", "聯發科", "+2%，250 天 +22%")]
 
 
+# 國安基金進場日（有新的護盤要加進來）。rescue_study.path_study（2000～2025 年 9 次，加權指數收盤）：
+# 前 20 天從進場前低點平均彈 13%（中位 12%）、最高點平均在第 13 天；之後平均回跌 13%，5 次跌破進場前低點（第二隻腳）；
+# 120 天內最低點只有 3 次在進場 5 天內、6 次在 20 天以後。2000-10、2008-09（系統性衰退）回跌 27%、34%
+RESCUE_DATES = ["2026-11-09"]
+
+
+def rescue_phase(data, t):
+    """國安基金進場後 20 個交易日內：提醒反彈到哪了、要不要追。用 0050 算反彈幅度"""
+    D = data["dates"]
+    m = next((x["c"] for x in data["stocks"] if x["id"] == "0050"), None)
+    ev = [d for d in RESCUE_DATES if d <= D[t]]
+    if not m or not ev:
+        return ""
+    i = next((k for k, d in enumerate(D) if d >= ev[-1]), None)
+    if i is None or t - i > 20 or i < 10:
+        return ""
+    lo = min(x for x in m[i - 10:i + 1] if x)
+    b = (m[t] / lo - 1) * 100
+    hist = "歷史 9 次：前 20 天平均彈 13%、最高點平均在第 13 天，之後平均回跌 13%，9 次有 5 次跌破進場前低點（第二隻腳）"
+    if b >= 8:
+        tip = "已經彈不少，短線不追高；等回測不破底再買第 2、3 批，手上有賺的短線部位可以先收一些"
+    elif b >= 0:
+        tip = "反彈還不大，第 1 批訊號出現可以小量買，但留錢等可能的第二隻腳"
+    else:
+        tip = "已跌破進場前低點，第二隻腳進行中；等止跌訊號（大盤落地指標）再分批"
+    return "⏳ 國安基金進場第 %d 個交易日，0050 從低點反彈 %+.1f%%｜%s → %s" % (t - i + 1, b, hist, tip)
+
+
 def rescue_text(data, t):
     """大跌時列出國安基金最常買、護盤後表現最好的幾檔現況"""
     by = {x["id"]: x for x in data["stocks"]}
@@ -282,6 +310,9 @@ def nightly(data, reg=None):
         L.append("⚠️ 系統性衰退警訊：%s。歷史上這種情況大跌後撿了 8 成會再套（2000 網路泡沫、2008 金融海嘯），這波先不撿，名單只列出來觀察" % rwhy)
     else:
         L.append("✅ 判斷是暫時性大跌：%s（歷史上這種情況撿了大多會漲回來）" % rwhy if warn is False else "❔ " + rwhy)
+    rp = rescue_phase(data, t)
+    if rp:
+        L.append(rp)
     rt = rescue_text(data, t)
     if rt:
         L.append(rt)
