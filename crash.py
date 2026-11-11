@@ -375,6 +375,26 @@ def dip_signal(s, t):
     return ("跌破整數關卡 %s＋%s（RSI %.0f）" % (exits.px(lv), "超賣背離" if div else "超賣往上勾", r0)) if broke and (div or hook) else ""
 
 
+MG_MAX = 5.0  # 融資餘額佔股本 5% 以上不撿（回測：抄底訊號裡最差的 −49% 都在這群；剔除後最差 −8%、抱 60 天勝率 80% → 85%）
+
+
+def mg_ratio(s, t):
+    """融資餘額佔股本（%）；融資限額約股本 25%，所以 5% ≈ 使用率 20%"""
+    mg = s.get("mg") or []
+    return 100.0 * mg[t] / float(s["shares"]) if len(mg) > t and mg[t] and s.get("shares") else 0
+
+
+def vol_flush(s, t):
+    """低檔爆量：離季線跌 20% 以上、當天量是 20 日均量 2 倍以上、收紅
+    回測（2010 年起 281 筆）：抱 60 天勝率 73%、平均 +15.7%；暫時性大跌的年份（2015、2020、2025）勝率 80～98%，空頭年（2022）只有 38%"""
+    c, o, v = s["c"], s["o"], s["v"]
+    w = c[t - 59:t + 1]
+    if t < 60 or not all(w) or not o[t]:
+        return ""
+    dev, av = c[t] / (sum(w) / 60) - 1, sum(v[t - 20:t]) / 20
+    return "離季線 %+.0f%%、量 %.1f 倍收紅" % (dev * 100, v[t] / av) if dev <= -0.20 and av and v[t] >= 2 * av and c[t] > o[t] else ""
+
+
 def dip_nightly(data, reg=None, look=3):
     """好公司跌深抄底（使用者 2026-11-10 要的台股版；不用等大盤大跌，個股跌深就看）
     好公司：近 4 季 EPS>0 且比一年前多、財報健檢通過、均量 ≥500 張；跌深：比近一年高點跌 25% 以上
@@ -386,7 +406,7 @@ def dip_nightly(data, reg=None, look=3):
         return ""
     warn, rwhy = reg if reg is not None else regime()
     set_rank(data, t)
-    hits, watch = [], []
+    hits, watch, skip_mg = [], [], 0
     for s in S:
         c, v = s["c"], s["v"]
         if s["id"].startswith("00") or not c[t] or sum(v[t - 20:t]) / 20 < 500:
@@ -394,24 +414,31 @@ def dip_nightly(data, reg=None, look=3):
         dd = c[t] / max(c[t - 250:t + 1]) - 1
         if dd > -0.25 or not grows(s, D[t]) or fin_health.check(s, D[t])[0] is not True:
             continue
+        if mg_ratio(s, t) >= MG_MAX:  # 高融資股：一反彈融資就賣，不撿
+            skip_mg += 1
+            continue
+        fl = "" if warn else next(("%s %s" % (D[u][5:], w) for u in range(t, t - look, -1) for w in [vol_flush(s, u)] if w), "")
         sig = next(((u, w) for u in range(t, t - look, -1) for w in [dip_signal(s, u)] if w), None)
         inst = sum((s["fi"][i] or 0) + (s["it"][i] or 0) for i in range(t - 4, t + 1))
         bg = big(s, t, data_rank, 50)
         # 排序：權值股（市值前 50）→ 法人 5 日買超 → 跌得深
-        key = (0 if bg else 1, 0 if inst > 0 else 1, dd)
-        (hits if sig else watch).append((key, s, sig, dd, inst, bg))
+        key = (0 if fl else 1, 0 if bg else 1, 0 if inst > 0 else 1, dd)
+        (hits if sig else watch).append((key, s, sig, dd, inst, bg, fl))
     if not hits and not watch:
         return ""
     L = ["🪝 好公司跌深抄底（比一年高點跌 25%% 以上、還在賺錢成長、財報健檢過）：%d 檔有第 1 批買訊、%d 檔觀察中" % (len(hits), len(watch))]
     if warn:
         L.append("⚠️ 系統性衰退警訊（%s）：先不撿，只觀察" % rwhy)
     tag = lambda bg, inst: ("權值股・" if bg else "") + "法人 5 日 %s 張" % "{:+,}".format(inst)
-    for _, s, (u, w), dd, inst, bg in sorted(hits, key=lambda x: x[0])[:8]:
-        L.append("・🟢 %s %s %s｜離一年高點 %+.0f%%｜%s｜%s %s%s" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst), D[u][5:], w,
-                                                            "（先不買）" if warn else "，可以買第 1 批 30%"))
-    for _, s, _, dd, inst, bg in sorted(watch, key=lambda x: x[0])[:6]:
-        L.append("・⚪ %s %s %s｜離一年高點 %+.0f%%｜%s｜等破整數關卡＋超賣背離" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst)))
-    L.append("排序：權值股（市值前 50）→ 法人買超 → 跌得深；只列前 8 檔買訊、6 檔觀察")
+    fire = lambda fl: "｜🔥 低檔爆量（%s）" % fl if fl else ""
+    for _, s, (u, w), dd, inst, bg, fl in sorted(hits, key=lambda x: x[0])[:8]:
+        L.append("・🟢 %s %s %s｜離一年高點 %+.0f%%｜%s｜%s %s%s%s" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst), D[u][5:], w,
+                                                              "（先不買）" if warn else "，可以買第 1 批 30%", fire(fl)))
+    for _, s, _, dd, inst, bg, fl in sorted(watch, key=lambda x: x[0])[:6]:
+        L.append("・⚪ %s %s %s｜離一年高點 %+.0f%%｜%s｜等破整數關卡＋超賣背離%s" % (s["id"], s["name"], exits.px(s["c"][t]), dd * 100, tag(bg, inst), fire(fl)))
+    L.append("排序：🔥 低檔爆量 → 權值股（市值前 50）→ 法人買超 → 跌得深；只列前 8 檔買訊、6 檔觀察%s" % ("；另有 %d 檔融資佔股本 %g%% 以上，不撿" % (skip_mg, MG_MAX) if skip_mg else ""))
+    if any(x[-1] for x in hits + watch):
+        L.append("🔥 低檔爆量＝離季線跌 20% 以上、量 2 倍以上收紅：2010 年起回測抱 60 天勝率 73%、平均 +15.7%（空頭年只有 38%，所以衰退警訊亮時不標）；最差一筆 −56%，一定要設停損。")
     L.append("第 2 批等站穩 5 日線＋融資大退、第 3 批等帶量長紅突破月線；回測第 1 批抱 60 天勝率 83%、平均 +31%、最差 −8%（隨便買 63%、+23%）；每檔停損買進前跟你討論。")
     return "\n".join(L)
 
