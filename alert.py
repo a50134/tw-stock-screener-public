@@ -1,7 +1,11 @@
 """
-alert.py - 盤中持股即時提醒（只發 Discord，不發 LINE；持股是私人資料）
+alert.py - 盤中即時提醒（只發 Discord，不發 LINE；持股是私人資料）
 
-開盤前到收盤（alert.yml 每 30 分鐘跑一次）檢查每一檔持股：
+開盤前到收盤（alert.yml：09:00～11:00 與 13:00～13:30 每 10 分鐘、其餘每 30 分鐘）先掃大環境（2026-11-11 使用者要的）：
+  A. 大盤急漲急跌：0050 當天漲跌超過 2%／3.5%／5%，或跟上一次檢查比短時間變動 1% 以上
+  B. 重大消息：國安基金、央行、金管會、限空令、美國升降息、關稅等（同一類消息一天最多 2 則）
+  C. 前一晚推薦的股票盤中急漲急跌 4% 以上
+再檢查每一檔持股：
   1. 價位：到你設定的「先賣一半」、賣價區、停損，或盤中大漲大跌 4% 以上
   2. 新聞：公司本身的新聞，以及它的原料／報價新聞（例如華新看銅價、鎳價、不銹鋼）
      每則新聞判斷是利多還是利空、對你這檔的影響，再配合現價和你的計畫給建議
@@ -134,6 +138,92 @@ def price_alerts(sid, name, h, plan, q, seen):
     return [(k, x) for k, x in out if "%s:%s" % (sid, k) not in seen]
 
 
+BIG_Q = ["國安基金", "金管會 股市", "限空令", "央行 利率", "聯準會 利率", "台股 盤中", "關稅 台灣"]
+BIG_KW = ("國安基金", "護盤", "限空", "央行", "金管會", "升息", "降息", "熔斷", "關稅", "重挫", "崩跌", "暴跌", "急殺", "跳水", "飆漲", "暴漲", "急拉", "戰爭", "停火")
+TIERS = (2, 3.5, 5)
+
+
+def market_scan(st, seen_px, seen_news, plan_rows, quotes):
+    """大盤急漲急跌、重大消息、昨晚推薦股急漲急跌；回傳 (文字區塊清單, 則數)。會更新 st["mkt"]、seen_px、seen_news"""
+    blocks, n = [], 0
+    ids = ["0050"] + [r["id"] for r in plan_rows]
+    try:
+        Q = quotes(ids)
+    except Exception as e:
+        print("大盤報價抓取失敗：", type(e).__name__)
+        Q = {}
+    now = dt.datetime.now(TW)
+    o, z, y = Q.get("0050", (None, None, None))
+    z = z or o
+    L = []
+    if z and y:
+        g = (z / y - 1) * 100
+        for lv in reversed(TIERS):  # 只發到達的最高一級，較低的級數一併記成已發
+            k = "mkt:%s%s" % ("up" if g > 0 else "dn", lv)
+            if abs(g) < lv:
+                continue
+            new = k not in seen_px
+            for lo_ in TIERS:
+                if lo_ <= lv:
+                    seen_px.add("mkt:%s%s" % ("up" if g > 0 else "dn", lo_))
+            if new:
+                tip = ("大漲不追高，手上有到價的照計畫賣" if g > 0 else
+                       "先不要急著賣也不要急著接，看下面有沒有重大消息；持股跌破停損才處理，抄底等每晚報告的第 1 批訊號")
+                L.append("%s 大盤（0050）盤中 %+.1f%%，現價 %s（超過 %g%% 門檻）。%s" % ("📈" if g > 0 else "📉", g, exits.px(z), lv, tip))
+            break
+        last = st.get("mkt") or {}
+        try:
+            mins = (now - dt.datetime.fromisoformat(last["t"])).total_seconds() / 60
+        except Exception:
+            mins = 999
+        if last.get("px") and 0 < mins <= 45 and last.get("day") == now.strftime("%Y-%m-%d"):
+            sw = (z / last["px"] - 1) * 100
+            cnt = sum(1 for k in seen_px if k.startswith("mkt:sw"))
+            if abs(sw) >= 1 and cnt < 4:
+                seen_px.add("mkt:sw%s" % now.strftime("%H%M"))
+                L.append("⚡ 大盤（0050）%d 分鐘內%s %.1f%%（%s → %s），今天累計 %+.1f%%" % (mins, "急拉" if sw > 0 else "急殺", abs(sw), exits.px(last["px"]), exits.px(z), g))
+        st["mkt"] = {"px": z, "t": now.isoformat(), "day": now.strftime("%Y-%m-%d")}
+    if L:
+        blocks.append("\n".join(["【大盤】"] + ["・" + x for x in L]))
+        n += len(L)
+    # 重大消息：同一類（關鍵字）一天最多 2 則，避免同一件事各家媒體洗版
+    day, N = now.strftime("%m%d"), []
+    for q in BIG_Q:
+        for it in rss(q, 2):
+            kw = next((k for k in BIG_KW if k in it["title"]), None)
+            if not kw:
+                continue
+            h = hashlib.md5(it["title"].encode("utf-8")).hexdigest()[:12]
+            cnt = sum(1 for k in seen_px if k.startswith("big:%s:" % kw))
+            if h in seen_news or cnt >= 2 or len(N) >= 4:
+                continue
+            seen_news.add(h)
+            seen_px.add("big:%s:%d" % (kw, cnt))
+            rescue = any(k in it["title"] for k in ("國安基金", "護盤", "限空"))
+            N.append("・%s%s（%s %s）%s" % ("🛡️ " if rescue else "📰 ", it["title"], it["d"], it["src"],
+                                        "\n　→ 政府出手穩定股市，歷史上隔天上漲機率高；但第一波反彈不追高，等回跌再買" if rescue else ""))
+    if N:
+        blocks.append("\n".join(["【重大消息】"] + N))
+        n += len(N)
+    P = []
+    for r in plan_rows:
+        o, z, y = Q.get(r["id"], (None, None, None))
+        z = z or o
+        if not z or not y:
+            continue
+        g = (z / y - 1) * 100
+        k = "pick:%s:%s" % (r["id"], "up" if g > 0 else "dn")
+        if abs(g) >= 4 and k not in seen_px:
+            seen_px.add(k)
+            P.append("・%s %s %s 盤中 %+.1f%%，現價 %s%s" % ("📈" if g > 0 else "📉", r["id"], r.get("name", ""), g, exits.px(z),
+                     "（超過不追價 %s，不要追）" % exits.px(r["chase"]) if g > 0 and r.get("chase") and z > r["chase"] else
+                     "（跌破停損價 %s，不要買）" % exits.px(r["stop"]) if r.get("stop") and z <= r["stop"] else ""))
+    if P:
+        blocks.append("\n".join(["【昨晚推薦的股票】"] + P))
+        n += len(P)
+    return blocks, n
+
+
 def digest(cfg, prof, sell_plan=None, hours=30, per=8):
     """每晚報告用：持股的公司新聞＋原料新聞整理（近 hours 小時），每則附利多／利空與建議；沒有持股回傳空字串"""
     H = exits.holdings(cfg)
@@ -186,9 +276,6 @@ def main():
     ld = lambda n, d=None: json.load(open(os.path.join(DIR, n), encoding="utf-8")) if os.path.exists(os.path.join(DIR, n)) else d
     cfg, prof = ld("sop_config.json", {}), ld("stock_profiles.json", {})
     H = exits.holdings(cfg)
-    if not H:
-        print("沒有持股，不用檢查")
-        return
     sp = {x["id"]: x for x in (ld("sell_plan.json", {}) or {}).get("holds", [])}
     today = dt.datetime.now(TW).strftime("%Y-%m-%d")
     st = ld("alert_state.json", {}) or {}
@@ -197,13 +284,15 @@ def main():
     st["day"] = today
     seen_px, seen_news = set(st.get("px", [])), set(st.get("news", []))
     from morning_check import quotes
+    rows = [r for r in (ld("sop_plan.json", {}) or {}).get("rows", []) if r.get("state") == "ok" and r["id"] not in H]
+    blocks, n_mkt = market_scan(st, seen_px, seen_news, rows, quotes) if "--no-market" not in sys.argv else ([], 0)
     try:
-        Q = {k: {"o": v[0], "z": v[1], "y": v[2]} for k, v in quotes(list(H)).items()}
+        Q = {k: {"o": v[0], "z": v[1], "y": v[2]} for k, v in quotes(list(H)).items()} if H else {}
     except Exception as e:
         print("報價抓取失敗：", type(e).__name__)
         Q = {}
     hp = (cfg.get("orders") or {}).get("holds_plan") or {}
-    blocks, n_px, n_news = [], 0, 0
+    n_px, n_news = 0, 0
     for sid, h in H.items():
         p, name = prof.get(sid) or {}, (sp.get(sid) or {}).get("name") or sid
         plan = dict(hp.get(sid) or {})
@@ -257,7 +346,7 @@ def main():
         print("沒有新的提醒")
     else:
         now = dt.datetime.now(TW).strftime("%m/%d %H:%M")
-        text = "\n\n".join(["⚡ 持股即時提醒（%s）" % now] + blocks +
+        text = "\n\n".join(["⚡ 盤中即時提醒（%s）" % now] + blocks +
                            ["利多／利空是依新聞標題的字判斷，可能看錯；要更仔細的判斷，把新聞貼給 Claude 一起看。"])
         if DRY:
             print(text)
@@ -268,7 +357,7 @@ def main():
                 print("沒有設定 DISCORD_WEBHOOK_URL，提醒沒發出")
                 return
             send_report.send_discord(url, text)
-        print("已發送：價位提醒 %d 則、新聞 %d 則" % (n_px, n_news))
+        print("已發送：大盤與重大消息 %d 則、價位提醒 %d 則、新聞 %d 則" % (n_mkt, n_px, n_news))
     if not DRY:
         json.dump(st, open(STATE, "w", encoding="utf-8"), ensure_ascii=False)
 
