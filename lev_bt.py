@@ -13,6 +13,9 @@ lev_bt.py - 0050 正2（00631L）什麼時候買的回測（2026-11-11 使用者
 每種買法看正2 抱 20／60／120 天的勝率、平均、最差，持有期間最多賠多少，以及同樣時間點買 0050 的結果。
 另外看長期規則：一直抱正2、只在 0050 站上季線／年線時抱正2（其餘時間空手）、一直抱 0050。
 
+2026-11-11 加：0050 反1（00632R，每天漲跌是 0050 的 −1 倍）什麼時候可以抱。
+2014-10 以前同樣用模擬（−1 倍、每年扣 1%），系統性衰退警訊同 crash.regime（美股跌破 200 日線＋美債殖利率近一年倒掛）。
+
 用法：python lev_bt.py
 """
 import datetime as dt
@@ -77,7 +80,7 @@ def curve_stats(eq, D):
 
 
 def main():
-    a, b = yahoo("0050.TW"), yahoo("00631L.TW")
+    a, b, rv = yahoo("0050.TW"), yahoo("00631L.TW"), yahoo("00632R.TW")
     if not a:
         print("0050 抓不到")
         return
@@ -190,8 +193,129 @@ def main():
     print("  0050 在季線（60 日）上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 60, t)), DD))
     print("  0050 在年線（240 日）上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 240, t)), DD))
     print("  0050 在月線和季線上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 20, t) and m[t] > ma(m, 60, t)), DD))
+    inverse(D, m, rv, L2, n, s0, run_any=lambda cond, S: run_series(S, cond, s0, n), DD=DD)
     t = n - 1
     print("\n現在（%s）：0050 月線 %s、季線 %s、年線 %s" % (D[t], "上" if m[t] > ma(m, 20, t) else "下", "上" if m[t] > ma(m, 60, t) else "下", "上" if m[t] > ma(m, 240, t) else "下"))
+
+
+def run_series(S, cond, s0, n):
+    """cond(t) 為真時抱 S（當天收盤決定，隔天起算報酬），否則空手；換手扣成本"""
+    eq, held = [1.0], False
+    for t in range(s0 + 1, n):
+        x = eq[-1] * (S[t] / S[t - 1] if held else 1)
+        want = cond(t)
+        if want != held:
+            x *= 1 - COST
+            held = want
+        eq.append(x)
+    return eq
+
+
+def regime_series(D):
+    """每天的系統性衰退警訊（美股跌破 200 日線＋近一年 10 年減 3 個月殖利率曾倒掛）"""
+    spx, tnx, irx = yahoo("%5EGSPC"), yahoo("%5ETNX"), yahoo("%5EIRX")
+    if not spx or not tnx or not irx:
+        return None
+    sd = sorted(spx)
+    sc = [spx[d] for d in sd]
+    cd = [d for d in sorted(tnx) if d in irx]
+    cv = [tnx[d] - irx[d] for d in cd]
+    out, i, j = {}, 0, 0
+    for d in D:
+        while i + 1 < len(sd) and sd[i + 1] < d:  # 美股用前一個交易日（台股收盤時美股還沒開）
+            i += 1
+        while j + 1 < len(cd) and cd[j + 1] < d:
+            j += 1
+        if i < 200 or j < 250 or sd[i] >= d:
+            out[d] = False
+            continue
+        below = sc[i] < sum(sc[i - 199:i + 1]) / 200
+        out[d] = below and min(cv[j - 250:j + 1]) < 0
+    return out
+
+
+def inverse(D, m, rv, L2, n, s0, run_any, DD):
+    print("\n" + "=" * 60 + "\n【0050 反1（00632R）】")
+    inv = [100.0]
+    for i in range(1, n):
+        inv.append(inv[-1] * (1 - (m[i] / m[i - 1] - 1) - 0.01 / 250))
+    real_d = [d for d in D if d in rv]
+    R = list(inv)
+    if real_d:
+        i0 = D.index(real_d[0])
+        rc = clean(real_d, [rv[d] for d in real_d])
+        rmap = dict(zip(real_d, rc))
+        k, prev = inv[i0] / rc[0], inv[i0]
+        for i in range(i0, n):
+            prev = rmap[D[i]] * k if D[i] in rmap else prev
+            R[i] = prev
+        yrs = (dt.date.fromisoformat(D[-1]) - dt.date.fromisoformat(D[i0])).days / 365.25
+        print("模擬對照（%s 之後）：真的反1 年化 %+.1f%%、模擬 %+.1f%%" % (
+            real_d[0], 100 * ((rc[-1] / rc[0]) ** (1 / yrs) - 1), 100 * ((inv[-1] / inv[i0]) ** (1 / yrs) - 1)))
+    reg = regime_series(D)
+    print("系統性衰退警訊：%s" % ("抓不到美股資料，略過" if reg is None else "亮燈 %d 天（%s）" % (
+        sum(reg.values()), "、".join(sorted({d[:4] for d, v in reg.items() if v})) or "無")))
+    y = lambda t: ma(m, 240, t)
+    q = lambda t: ma(m, 60, t)
+    mo = lambda t: ma(m, 20, t)
+    rules = [
+        ("一直抱反1", lambda t: True),
+        ("0050 在年線下才抱反1", lambda t: m[t] < y(t)),
+        ("0050 在季線下才抱反1", lambda t: m[t] < q(t)),
+        ("0050 在年線下、而且月線季線都往下才抱反1", lambda t: m[t] < y(t) and mo(t) < ma(m, 20, t - 5) and q(t) < ma(m, 60, t - 5)),
+        ("年線下＋跌破季線才抱反1", lambda t: m[t] < y(t) and m[t] < q(t)),
+    ]
+    if reg:
+        rules.append(("系統性衰退警訊亮才抱反1", lambda t: reg[D[t]]))
+        rules.append(("警訊亮＋0050 在季線下才抱反1", lambda t: reg[D[t]] and m[t] < q(t)))
+    print("\n【只抱反1，其餘時間空手】（%s 起）" % D[s0])
+    for name, f in rules:
+        eq = run_any(f, R)
+        days = sum(1 for t in range(s0, n) if f(t))
+        print("  %s：%s｜抱的天數 %.0f%%" % (name, curve_stats(eq, DD), 100 * days / (n - s0)))
+    print("\n【正2＋反1 輪流】（年線上抱正2、年線下抱反1）")
+    eq, held = [1.0], None
+    for t in range(s0 + 1, n):
+        S = L2 if held == "L" else R if held == "R" else None
+        x = eq[-1] * (S[t] / S[t - 1] if S else 1)
+        want = "L" if m[t] > y(t) else "R"
+        if want != held:
+            x *= 1 - COST
+            held = want
+        eq.append(x)
+    print("  年線上正2、年線下反1：%s" % curve_stats(eq, DD))
+    print("  （對照）年線上正2、年線下空手：%s" % curve_stats(run_any(lambda t: m[t] > y(t), L2), DD))
+
+    # 事件：0050 收盤跌破年線（之前 20 天都在年線上）→ 買反1
+    print("\n【0050 第一次跌破年線就買反1】（之前 20 天都在年線上；隔天收盤買）")
+    ev = [t for t in range(s0 + 20, n - 1) if m[t] < y(t) and all(m[u] > y(u) for u in range(t - 20, t))]
+    for H in HOLDS:
+        r = [R[t + 1 + H] / R[t + 1] - 1 - COST for t in ev if t + 1 + H < n]
+        print("  抱 %3d 天：%s" % (H, stat(r)))
+    print("  明細（抱 60 天）：" + "、".join("%s %s" % (D[t], "%+.0f%%" % (100 * (R[t + 61] / R[t + 1] - 1)) if t + 61 < n else "—") for t in ev))
+    # 事件：大跌後第一波反彈 13% 以上 → 買反1（賭回跌）
+    print("\n【大跌後反彈 13% 以上就買反1】（賭第一波反彈後會回跌；大跌＝0050 5 日跌 6%，40 天內反彈 13%）")
+    evs, last = [], -99
+    for t in range(5, n):
+        if -0.4 < m[t] / m[t - 5] - 1 <= -0.06:
+            if t - last > 5:
+                evs.append(t)
+            last = t
+    got = []
+    for t0 in evs:
+        lo = min(m[t0:t0 + 6]) if t0 + 6 < n else m[t0]
+        for t in range(t0 + 1, min(t0 + 40, n - 1)):
+            lo = min(lo, m[t])
+            if m[t] / lo - 1 >= 0.13:
+                got.append(t)
+                break
+    for H in (10, 20, 60):
+        r = [R[t + 1 + H] / R[t + 1] - 1 - COST for t in got if t + 1 + H < n]
+        print("  抱 %3d 天：%s" % (H, stat(r)))
+    print("  明細（抱 20 天）：" + "、".join("%s %s" % (D[t], "%+.0f%%" % (100 * (R[t + 21] / R[t + 1] - 1)) if t + 21 < n else "—") for t in got))
+    t = n - 1
+    print("\n現在（%s）：0050 %s 年線、%s 季線；系統性衰退警訊 %s" % (D[t], "在" if m[t] > y(t) else "跌破", "在" if m[t] > q(t) else "跌破",
+                                                       "—" if reg is None else ("亮" if reg[D[t]] else "沒亮")))
 
 
 if __name__ == "__main__":
