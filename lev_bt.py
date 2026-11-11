@@ -42,10 +42,16 @@ def yahoo(sym):
 
 
 def clean(D, c):
-    """去掉 Yahoo 偶爾出現的壞資料（單日漲跌超過 25% 視為錯誤，沿用前一天）"""
-    out = [c[0]]
+    """把價格接成連續的：單日漲跌超過 25%（正2 一天最多 ±20%）視為分割或壞資料，那天當作沒漲跌，之後照每天漲跌幅接下去"""
+    out, bad = [c[0]], []
     for i in range(1, len(c)):
-        out.append(out[-1] if abs(c[i] / out[-1] - 1) > 0.25 else c[i])
+        r = c[i] / c[i - 1] - 1
+        if abs(r) > 0.25:
+            bad.append("%s %+.0f%%" % (D[i], r * 100))
+            r = 0
+        out.append(out[-1] * (1 + r))
+    if bad:
+        print("  （資料斷層 %d 處，已接起來：%s）" % (len(bad), "、".join(bad[:8])))
     return out
 
 
