@@ -443,6 +443,43 @@ def dip_nightly(data, reg=None, look=3):
     return "\n".join(L)
 
 
+def lev_line(data, reg=None):
+    """0050 正2（00631L）能不能買（2026-11-11 使用者要的；lev_bt.py 回測 2010 年起）
+    回測：0050 在年線上才抱正2 年化 +18.7%、最大跌幅 −38%（一直抱正2 +27.9%／−55%、一直抱 0050 +15.8%／−34%）；
+    大跌隔天就買比等回跌、等站回均線好（抱 60 天勝率 76%、平均 +15.9%）。
+    反1（00632R）怎麼抱都賠（一直抱年化 −17.6%、年線下才抱 −7.3%、衰退警訊亮才抱 −2.1%），所以只提醒不要買"""
+    S = data["stocks"]
+    x = next((s for s in S if s["id"] == "0050"), None)
+    if not x:
+        return ""
+    c = [v for v in x["c"] if v]
+    adj = [c[0]]  # 分割（例如 2025-06 一拆四）接成連續價格
+    for i in range(1, len(c)):
+        r = c[i] / c[i - 1] - 1
+        adj.append(adj[-1] * (1 + (0 if abs(r) > 0.25 else r)))
+    if len(adj) < 241:
+        return ""
+    k = c[-1] / adj[-1]
+    y = sum(adj[-240:]) / 240 * k
+    q = sum(adj[-60:]) / 60 * k
+    gap = (c[-1] / y - 1) * 100
+    warn = reg[0] if reg else None
+    big = r5(adj, len(adj) - 1) <= TRIG or any(r5(adj, len(adj) - 1 - i) <= TRIG for i in range(1, 3))
+    if warn:
+        head = "🔴 0050 正2：系統性衰退警訊亮，不買；手上有的出場"
+    elif c[-1] < y:
+        head = "🔴 0050 正2：0050 收盤 %s 跌破年線 %s，不買；手上有的出場（站回年線再說）" % (exits.px(c[-1]), exits.px(y))
+    else:
+        head = "🟢 0050 正2：可以分批買（衰退警訊沒亮、0050 %s 在年線 %s 之上 %+.0f%%%s）" % (
+            exits.px(c[-1]), exits.px(y), gap, "；近 3 天剛大跌，回測大跌隔天買抱 60 天勝率 76%" if big else "")
+    L = ["📊 " + head]
+    if not warn and c[-1] >= y:
+        L.append("　做法：分 3 筆、每 1～2 週買一筆（或大盤單日跌 2%% 以上那天買一筆）；金額要能接受中途先賠 3～4 成；0050 收盤跌破年線 %s 就出場%s" % (
+            exits.px(y), "；離年線只剩 %.0f%%，要特別小心" % gap if gap < 5 else ""))
+    L.append("　0050 反1：不建議。回測 2010 年起怎麼抱都賠（年線下才抱年化 −7%、跌破年線就買抱 60 天勝率 15%），台股長期往上，反1 每天還會耗損")
+    return "\n".join(L)
+
+
 def backtest(data, holds=(20, 60)):
     D, S = data["dates"], data["stocks"]
     m = next(x["c"] for x in S if x["id"] == "0050")

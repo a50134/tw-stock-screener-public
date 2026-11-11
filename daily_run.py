@@ -303,6 +303,9 @@ def main():
             if ctext:
                 add(["report_discord.txt", "report_line.txt"], ctext)
                 log("大跌撿好股已加入報告")
+            ltext = crash.lev_line(ld("data.json"), reg)  # 0050 正2 能不能買（反1 不建議）
+            if ltext:
+                add(["report_discord.txt", "report_line.txt"], ltext)
             dtext = crash.dip_nightly(ld("data.json"), reg)
             if dtext:
                 add(["report_discord.txt", "report_line.txt"], dtext)
