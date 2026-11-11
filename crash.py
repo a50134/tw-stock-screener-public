@@ -247,25 +247,45 @@ RESCUE_DATES = ["2026-11-09"]
 
 
 def rescue_phase(data, t):
-    """國安基金進場後 20 個交易日內：提醒反彈到哪了、要不要追。用 0050 算反彈幅度"""
+    """國安基金進場後 20 個交易日內：現在在「先彈→回跌→再起」的哪一段、離賣點買點多遠；到回跌買點時列出該買的護盤股
+    價位用 0050 算（加權指數的替身）。高點區＝從低點彈 13% 以上或站上 10 日線；回跌買點＝從這波高點回跌 6%（錢線奎國老師的 15%／6% 說法，
+    回測順利的 4 次回跌 0～5%、不順的 5 次 13～34%，所以只買第 2 批、留錢）；跌破低點＝第二隻腳"""
     D = data["dates"]
-    m = next((x["c"] for x in data["stocks"] if x["id"] == "0050"), None)
+    by = {x["id"]: x for x in data["stocks"]}
+    m = (by.get("0050") or {}).get("c")
     ev = [d for d in RESCUE_DATES if d <= D[t]]
     if not m or not ev:
         return ""
     i = next((k for k, d in enumerate(D) if d >= ev[-1]), None)
     if i is None or t - i > 20 or i < 10:
         return ""
-    lo = min(x for x in m[i - 10:i + 1] if x)
-    b = (m[t] / lo - 1) * 100
-    hist = "歷史 9 次：前 20 天平均彈 13%、最高點平均在第 13 天，之後平均回跌 13%，9 次有 5 次跌破進場前低點（第二隻腳）"
-    if b >= 8:
-        tip = "已經彈不少，短線不追高；等回測不破底再買第 2、3 批，手上有賺的短線部位可以先收一些"
-    elif b >= 0:
-        tip = "反彈還不大，第 1 批訊號出現可以小量買，但留錢等可能的第二隻腳"
-    else:
-        tip = "已跌破進場前低點，第二隻腳進行中；等止跌訊號（大盤落地指標）再分批"
-    return "⏳ 國安基金進場第 %d 個交易日，0050 從低點反彈 %+.1f%%｜%s → %s" % (t - i + 1, b, hist, tip)
+    j0 = min(range(i - 10, i + 1), key=lambda k: m[k] or 9e9)  # 進場前 10 天（含進場日）的最低收盤
+    lo = m[j0]
+    pk = max(m[j0:t + 1])
+    b, dn = (m[t] / lo - 1) * 100, (m[t] / pk - 1) * 100
+    ma10 = sum(m[t - 9:t + 1]) / 10
+    buy = pk * 0.94
+    head = "⏳ 國安基金進場第 %d 個交易日｜0050 %s：從低點 %s 反彈 %+.1f%%、離這波高點 %+.1f%%、10 日線 %s" % (
+        t - i + 1, exits.px(m[t]), exits.px(lo), b, dn, exits.px(ma10))
+    hist = "（歷史 9 次：平均先彈 13%、第 13 天左右最高，再回跌；順利的 4 次只回 0～5%，其餘 5 次回 13% 以上並跌破低點）"
+    picks = []
+    for sid, nm, ex in RESCUE_PICKS:  # 回測護盤後 120 天比大盤多賺最多的排前面
+        x = by.get(sid)
+        if x and x["c"][t]:
+            c = x["c"]
+            d1 = (c[t] / max(c[j0:t + 1]) - 1) * 100
+            picks.append("%s %s（離這波高點 %+.0f%%）" % (nm, exits.px(c[t]), d1))
+    what = "、".join(picks)
+    if m[t] < lo:
+        return head + "\n　🔴 已跌破進場前低點＝第二隻腳進行中：先不買，等大盤落地指標 3 項以上再分批（最後 40% 資金留給這裡）" + hist
+    if dn <= -6:
+        return (head + "\n　🟢 回跌買點到了（從高點回 6%% 以上、還沒破低點 %s）：可以買第 2 批 30%%，不要一次買滿，留 40%% 防跌破低點" % exits.px(lo)
+                + "\n　👉 買什麼（國安基金必買、護盤後漲最多的排前面）：" + what + hist)
+    if b >= 13 or (m[t] >= ma10 and dn > -3):
+        return (head + "\n　🟠 已到第一波高點區（彈 13%% 以上或站上 10 日線）：短線不追高、手上短線有賺的可以先收一些；回跌買點在 0050 %s（從高點回 6%%），跌破 %s 是第二隻腳" % (
+            exits.px(buy), exits.px(lo)) + hist)
+    return (head + "\n　🟡 正在回跌或還沒彈夠：回跌買點在 0050 %s（還差 %.1f%%），到了再買第 2 批；跌破 %s 是第二隻腳" % (
+        exits.px(buy), (m[t] / buy - 1) * 100, exits.px(lo)) + hist)
 
 
 def rescue_text(data, t):
