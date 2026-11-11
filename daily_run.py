@@ -298,6 +298,7 @@ def main():
         try:  # 大跌撿好股（3-3-4 分批）：0050 五日跌 6% 以上後 30 個交易日內才出現
             import crash
             reg = crash.regime()  # 系統性衰退判斷（美股 200 日線＋美債殖利率），兩段共用
+            log("系統性衰退判斷：", {True: "⚠️ 有警訊", False: "暫時性大跌", None: "抓不到資料"}[reg[0]], reg[1])
             ctext = crash.nightly(ld("data.json"), reg)
             if ctext:
                 add(["report_discord.txt", "report_line.txt"], ctext)
