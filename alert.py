@@ -139,8 +139,57 @@ def price_alerts(sid, name, h, plan, q, seen):
 
 
 BIG_Q = ["國安基金", "金管會 股市", "限空令", "央行 利率", "聯準會 利率", "台股 盤中", "關稅 台灣"]
-BIG_KW = ("國安基金", "護盤", "限空", "央行", "金管會", "升息", "降息", "熔斷", "關稅", "重挫", "崩跌", "暴跌", "急殺", "跳水", "飆漲", "暴漲", "急拉", "戰爭", "停火")
+# 重大消息分類：(標題要有的字, 排除的字, 圖示, 對投資的影響, 原因, 建議)；對不上任何一類的新聞＝不重要，不發（2026-11-12 使用者：沒有重大消息就不發，有的話要說影響和原因）
+IMPACT = [
+    (("國安基金", "護盤", "穩定市場"), ("退場", "撤出"), "🛡️", "偏利多（短線）",
+     "政府用國安基金進場買權值股，賣壓會被承接；回測 9 次進場，第一波平均反彈約 13%、第 13 天左右見高，之後平均回跌 13%",
+     "手上有的先抱；想買的不要追第一波，等每晚報告的「回跌買點」（從高點回跌約 6%）；護盤股優先台達電、鴻海、台積電、廣達"),
+    (("國安基金退場", "國安基金撤出", "護盤退場"), (), "⚠️", "偏利空（中期）",
+     "國安基金退場代表政府認為市場已穩定，之後少了承接的買盤，歷史上退場後常盤整一段時間",
+     "已經賺的可以分批獲利了結；不急著加碼"),
+    (("限空", "禁止放空", "平盤以下不得放空"), (), "🛡️", "偏利多（短線）",
+     "限制放空讓空方不能再壓低股價，空單回補還會推升股價；通常是政府護盤的配套措施",
+     "跟國安基金一樣，不追第一波反彈，等回跌再分批"),
+    (("央行升息", "央行 升息", "升息半碼", "升息一碼"), ("聯準會", "Fed", "美國"), "🏦", "偏利空",
+     "台灣利率上升，房貸和企業借錢變貴，營建、高負債公司受影響最大；但銀行利差變大，金融股反而有利",
+     "營建股、高負債股先不加碼；金融股影響小或偏好"),
+    (("央行降息", "央行 降息", "降息半碼", "降息一碼"), ("聯準會", "Fed", "美國"), "🏦", "偏利多",
+     "台灣利率下降，資金成本變低，營建、高股息、成長股比較受惠；銀行利差變小",
+     "可以照計畫買；營建、高股息股相對有利"),
+    (("央行", "理監事會"), ("聯準會", "Fed", "美國", "日本", "歐洲"), "🏦", "看內容",
+     "央行利率不變或調整房貸限制（信用管制），主要影響營建股與房市",
+     "利率不變影響不大；信用管制收緊對營建股不利"),
+    (("聯準會升息", "Fed升息", "Fed 升息", "美國升息"), (), "🇺🇸", "偏利空",
+     "美國升息讓美元資產更吸引人，外資容易從台股匯出（台幣變弱），成長股與高本益比股受壓；美債價格也會跌",
+     "成長股、科技股先不追；美債 ETF 分批買不要重壓"),
+    (("聯準會降息", "Fed降息", "Fed 降息", "美國降息"), (), "🇺🇸", "偏利多",
+     "美國降息讓資金回流股市與新興市場，外資有機會回補台股，債券價格上漲",
+     "持股可以抱；美債 ETF 受惠"),
+    (("聯準會", "Fed", "鮑爾"), (), "🇺🇸", "看內容",
+     "聯準會官員的發言會改變市場對升降息的預期，影響外資進出與科技股",
+     "偏鷹派（想升息）對科技股不利，偏鴿派（想降息）有利；先看收盤反應，不要盤中追殺"),
+    (("關稅",), (), "🌐", "偏利空（出口股）",
+     "美國提高關稅會讓台灣出口到美國的貨變貴，電子代工、零組件、傳產出口股獲利受影響；暫緩或豁免則是利多",
+     "看標題是加徵（利空）還是暫緩／豁免（利多）；出口比重高的持股留意停損"),
+    (("戰爭", "開戰", "飛彈", "軍演"), ("停火",), "⚔️", "偏利空（短線）",
+     "地緣衝突讓資金避險，股市先跌、油價和金價上漲；歷史上大多是短線衝擊，除非戰事擴大",
+     "不要恐慌殺低；跌破停損才處理；原物料、航運可能受惠"),
+    (("停火", "和談", "休戰"), (), "🕊️", "偏利多",
+     "衝突降溫，避險資金回到股市，油價、金價回落",
+     "照計畫走；先前因戰爭上漲的油、金相關股留意回落"),
+    (("熔斷", "崩盤", "股災"), (), "🚨", "利空",
+     "市場恐慌性賣壓，短線可能繼續殺；但歷史上暫時性大跌（衰退警訊沒亮）撿好股勝率高",
+     "持股照停損處理；抄底等每晚報告的第 1 批訊號，不要盤中接刀"),
+]
 TIERS = (2, 3.5, 5)
+
+
+def classify(title):
+    """新聞標題 → IMPACT 的一類；對不上就是不重要的新聞（回傳 None）"""
+    for kw, ex, icon, eff, why, tip in IMPACT:
+        if any(k.replace(" ", "") in title.replace(" ", "") for k in kw) and not any(x in title for x in ex):
+            return kw[0], icon, eff, why, tip
+    return None
 
 
 def market_scan(st, seen_px, seen_news, plan_rows, quotes):
@@ -168,8 +217,9 @@ def market_scan(st, seen_px, seen_news, plan_rows, quotes):
                     seen_px.add("mkt:%s%s" % ("up" if g > 0 else "dn", lo_))
             if new:
                 tip = ("大漲不追高，手上有到價的照計畫賣" if g > 0 else
-                       "先不要急著賣也不要急著接，看下面有沒有重大消息；持股跌破停損才處理，抄底等每晚報告的第 1 批訊號")
-                L.append("%s 大盤（0050）盤中 %+.1f%%，現價 %s（超過 %g%% 門檻）。%s" % ("📈" if g > 0 else "📉", g, exits.px(z), lv, tip))
+                       "先不要急著賣也不要急著接；持股跌破停損才處理，抄底等每晚報告的第 1 批訊號")
+                L.append("%s 大盤（0050）盤中 %+.1f%%，現價 %s（超過 %g%% 門檻）\n　→ 可能原因：%s\n　→ 建議：%s" % (
+                    "📈" if g > 0 else "📉", g, exits.px(z), lv, "WHY", tip))
             break
         last = st.get("mkt") or {}
         try:
@@ -181,27 +231,31 @@ def market_scan(st, seen_px, seen_news, plan_rows, quotes):
             cnt = sum(1 for k in seen_px if k.startswith("mkt:sw"))
             if abs(sw) >= 1 and cnt < 4:
                 seen_px.add("mkt:sw%s" % now.strftime("%H%M"))
-                L.append("⚡ 大盤（0050）%d 分鐘內%s %.1f%%（%s → %s），今天累計 %+.1f%%" % (mins, "急拉" if sw > 0 else "急殺", abs(sw), exits.px(last["px"]), exits.px(z), g))
+                L.append("⚡ 大盤（0050）%d 分鐘內%s %.1f%%（%s → %s），今天累計 %+.1f%%\n　→ 可能原因：%s" % (
+                    mins, "急拉" if sw > 0 else "急殺", abs(sw), exits.px(last["px"]), exits.px(z), g, "WHY"))
         st["mkt"] = {"px": z, "t": now.isoformat(), "day": now.strftime("%Y-%m-%d")}
-    if L:
-        blocks.append("\n".join(["【大盤】"] + ["・" + x for x in L]))
-        n += len(L)
-    # 重大消息：同一類（關鍵字）一天最多 2 則，避免同一件事各家媒體洗版
-    day, N = now.strftime("%m%d"), []
+    # 重大消息：只發對得上 IMPACT 分類的（每則附影響、原因、建議）；同一類一天最多 2 則，避免同一件事各家媒體洗版
+    N, today = [], now.strftime("%Y-%m-%d")
+    if st.get("big_day") != today:
+        st["big_day"], st["big_today"] = today, []
     for q in BIG_Q:
         for it in rss(q, 2):
-            kw = next((k for k in BIG_KW if k in it["title"]), None)
-            if not kw:
+            c = classify(it["title"])
+            if not c:
                 continue
+            kw, icon, eff, why, tip = c
             h = hashlib.md5(it["title"].encode("utf-8")).hexdigest()[:12]
             cnt = sum(1 for k in seen_px if k.startswith("big:%s:" % kw))
             if h in seen_news or cnt >= 2 or len(N) >= 4:
                 continue
             seen_news.add(h)
             seen_px.add("big:%s:%d" % (kw, cnt))
-            rescue = any(k in it["title"] for k in ("國安基金", "護盤", "限空"))
-            N.append("・%s%s（%s %s）%s" % ("🛡️ " if rescue else "📰 ", it["title"], it["d"], it["src"],
-                                        "\n　→ 政府出手穩定股市，歷史上隔天上漲機率高；但第一波反彈不追高，等回跌再買" if rescue else ""))
+            st["big_today"] = (st.get("big_today") or [])[-5:] + [it["title"][:40]]
+            N.append("・%s %s（%s %s）\n　→ 影響：%s\n　→ 原因：%s\n　→ 建議：%s" % (icon, it["title"], it["d"], it["src"], eff, why, tip))
+    if L:
+        reason = "、".join("「%s」" % t for t in (st.get("big_today") or [])[-2:]) or "沒找到相關的重大新聞，可能是外資進出、期貨或美股影響，先看收盤"
+        blocks.append("\n".join(["【大盤】"] + ["・" + x.replace("WHY", reason) for x in L]))
+        n += len(L)
     if N:
         blocks.append("\n".join(["【重大消息】"] + N))
         n += len(N)
@@ -316,6 +370,8 @@ def main():
             k = hashlib.md5(it["title"].encode("utf-8")).hexdigest()[:12]
             if k in seen_news or k in keys:
                 continue
+            if sign is None and tone(it["title"], UP + GOOD, DOWN + BAD) == 0:  # 看不出利多利空的公司新聞不發（不重要）
+                continue
             keys.add(k)
             fresh.append((k, it, sign))
         fresh = fresh[:6]
@@ -337,7 +393,10 @@ def main():
             n_px += 1
         for k, it, sign in fresh:
             tag, tip = judge(it, sign, h, q, plan)
-            L.append("・%s新聞（%s %s）：%s\n　→ %s。建議：%s" % ("原料" if sign is not None else "", it["d"], it["src"], it["title"], tag, tip))
+            g = tone(it["title"], UP + GOOD, DOWN + BAD) if sign is None else tone(it["title"]) * sign
+            why = ("公司本身的%s消息，通常會反映在股價上" % ("好" if g > 0 else "壞") if sign is None else
+                   "原料%s，%s" % ("漲" if tone(it["title"]) > 0 else "跌", "這家公司的產品報價通常跟著原料走，所以對獲利是同方向" if sign > 0 else "原料是這家公司的成本，所以對獲利是反方向"))
+            L.append("・%s新聞（%s %s）：%s\n　→ 影響：%s\n　→ 原因：%s\n　→ 建議：%s" % ("原料" if sign is not None else "公司", it["d"], it["src"], it["title"], tag.split("（")[0], why, tip))
             seen_news.add(k)
             n_news += 1
         blocks.append("\n".join(L))
