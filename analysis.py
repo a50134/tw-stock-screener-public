@@ -348,13 +348,25 @@ def market_weak(plan, hist_path=None):
     return "、".join(why)
 
 
-def guard_breakout(plan, weak):
-    """大盤偏弱或國際風險高時，只因「量價突破」或「穩健動能」入選的股票改成先觀望（回測：盤整偏弱時追突破平均 -7%）。回傳改了幾檔"""
+def big50(data):
+    """市值（股本 × 收盤價）前 50 名的代號＝權值股"""
+    L = sorted(((float(x["shares"]) * x["c"][-1], x["id"]) for x in (data or {}).get("stocks", [])
+                if not x["id"].startswith("00") and x.get("shares") and x["c"] and x["c"][-1]), reverse=True)
+    return {i for _, i in L[:50]}
+
+
+def guard_breakout(plan, weak, data=None):
+    """大盤偏弱或國際風險高時，只因「量價突破」或「穩健動能」入選的股票改成先觀望（回測：盤整偏弱時追突破平均 -7%）。回傳改了幾檔
+    2026-11-12 回測（2025-03～2026-11）：0050 跌破季線時，權值股（市值前 50）追強勢抱 20 天勝率 55%、平均 +4.1%（一般股 47%、+3.6%）；
+    大跌後 30 天內權值股 50%／+3.8%、一般股只有 38%／+1.0%。所以只因「跌破季線」偏弱時，權值股照常推薦，一般股才觀望；國際風險高時全部觀望"""
     n = 0
     if not weak:
         return 0
+    keep = big50(data) if data and "國際風險高" not in weak else set()
     for r in plan.get("rows", []):
         st = r.get("strategies") or []
+        if r.get("id") in keep:
+            continue
         if st and all(x in CHASE for x in st) and r.get("state") != "hold":
             r["state"], r["hold_why"] = "hold", weak
             n += 1
