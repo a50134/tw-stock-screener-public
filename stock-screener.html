@@ -1307,8 +1307,8 @@ function plan(s,t){
   else if(bias>P.maxBias){lo=Math.max(m10,m20);hi=lo+0.5*A;state='pullback';note=`高於月線 ${bias.toFixed(1)}%，超過追價上限 ${P.maxBias}%，等拉回 10 日均線附近`}
   else{lo=Math.max(m20,C-P.dn*A);hi=C+P.up*A;state='ok';note='可在區間內分批買進，跌破停損價就出場'}
   lo=tick(lo);hi=tick(Math.max(hi,lo));
-  const stop=tick(lo-P.stopAtr*A);let hi60=0;for(let i=Math.max(0,t-59);i<=t;i++)hi60=Math.max(hi60,s.h[i]);
-  const mid=(lo+hi)/2,t1=tick(hi60>hi+A?hi60:mid+2*A),t2=tick(Math.max(t1+A,mid+3.5*A)),rr=(t1-mid)/(mid-stop);
+  const mid=(lo+hi)/2,stop=tick(mid*(1-(+P.stopPct||8)/100));let hi60=0;for(let i=Math.max(0,t-59);i<=t;i++)hi60=Math.max(hi60,s.h[i]);  // 停損一律買價 −8%（2026-11-12 回測後使用者決定）
+  const t1=tick(hi60>hi+A?hi60:mid+2*A),t2=tick(Math.max(t1+A,mid+3.5*A)),rr=(t1-mid)/(mid-stop);
   return{lo,hi,stop,t1,t2,rr,note,state,A,bias};
 }
 function wma(a,n){const o=[];for(let i=0;i<a.length;i++){if(i<n-1){o.push(NaN);continue}let sw=0,s2=0;for(let j=0;j<n;j++){sw+=(n-j)*a[i-j];s2+=n-j}o.push(sw/s2)}return o}
@@ -1680,7 +1680,7 @@ if(!S.v24){S.v24=1;if(!S.strategies.some(x=>x.id==='s25'))S.strategies.push({id:
 if(!S.v25){S.v25=1;if(!S.strategies.some(x=>x.id==='s26'))S.strategies.push({id:'s26',name:'法人買超優勢',mode:'all',k:2,conds:[C('fxRatio',{n:20,x:8}),C('instRatio',{party:'it',n:20,x:2}),C('fiLadder'),C('instBoth',{n:60}),C('notFund'),C('listed')]})}
 /* 2026-11：高殖利率價值股（使用者的準則：已公告股息 >1.5 元、現金殖利率 >5.5%、本益比 <15、淨值比 <2、站上季線、季線上揚、只看上市、排除 ETF／ETN／存託憑證／REITs） */
 if(!S.v26){S.v26=1;if(!S.strategies.some(x=>x.id==='s27'))S.strategies.push({id:'s27',name:'高殖利率價值股',mode:'all',k:2,conds:[C('cashDiv',{x:1.5}),C('cashYield',{x:5.5}),C('pe',{x:15}),C('pbAt',{x:2}),C('maAbove',{n:60}),C('maUp',{n:60,k:3}),C('listed'),C('notFund')]})}
-S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
+S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,stopPct:8,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
 const save=()=>store.set(SK,S);
 const strat=()=>S.strategies.find(x=>x.id===S.cur)||S.strategies[0];
 
@@ -1907,7 +1907,7 @@ function renderPlan(s){
 function renderPset(){const P=S.plan,cb=(x,grp)=>`<label><input type="checkbox" data-sig="${x.k}"${P.off.includes(x.k)?'':' checked'}> ${esc(x.n)}</label>`;
   $('#psetIn').innerHTML=`<div class="pset-row"><label>買進區間下緣＝收盤 − <input class="field num" type="number" step="any" data-pp="dn" value="${P.dn}"> × ATR（不低於月線）</label>
     <label>上緣＝收盤 + <input class="field num" type="number" step="any" data-pp="up" value="${P.up}"> × ATR</label></div>
-    <div class="pset-row"><label>停損＝區間下緣 − <input class="field num" type="number" step="any" data-pp="stopAtr" value="${P.stopAtr}"> × ATR</label>
+    <div class="pset-row"><label>停損＝買進價 − <input class="field num" type="number" step="any" data-pp="stopPct" value="${P.stopPct}"> %</label>
     <label>高於月線超過 <input class="field num" type="number" step="any" data-pp="maxBias" value="${P.maxBias}"> % 就等拉回</label>
     <label>寶塔線翻轉要突破前 <input class="field num" type="number" step="1" min="1" data-pp="tn" value="${P.tn}"> 根棒</label>
     <label>NN 強訊號門檻 <input class="field num" type="number" step="1" min="1" data-pp="nnS" value="${P.nnS}"> 分・弱訊號 <input class="field num" type="number" step="1" min="1" data-pp="nnW" value="${P.nnW}"> 分</label>

@@ -393,6 +393,9 @@ def guard_cycle(plan, data):
     return n
 
 
+STOP = 0.08  # 停損一律買價 −8%（使用者 2026-11-12 決定；回測：平均報酬跟原本 ATR 停損一樣，最差一筆 −22% → −16%）
+
+
 def advise(s, t, row=None):
     """每一檔都要有的買賣建議（一行）。有交易計畫（sop_plan）就照計畫；沒有就依趨勢、過熱程度、波動自己算"""
     import exits
@@ -401,8 +404,8 @@ def advise(s, t, row=None):
     if z:  # 循環股：照近幾年平均低點買、平均高點賣（原料有大新聞時另外提醒）
         warn = "；⚠️ 原料新聞：%s，價位可能要調整" % "／".join(z["news"]) if z["news"] else ""
         if z["zone"] == "low":
-            stop = tk(min(z["lo"], z["c"]) * 0.9)
-            return "🟢 循環股低檔可買：接近近 %d 年平均低點 %s，分批買；目標平均高點 %s（%s）；跌破 %s 停損（比平均低點再低 10%%）%s" % (
+            stop = tk(min(z["lo"], z["c"]) * (1 - STOP))
+            return "🟢 循環股低檔可買：接近近 %d 年平均低點 %s，分批買；目標平均高點 %s（%s）；跌破 %s 停損（買價 −8%%）%s" % (
                 z["n"], px(z["lo"]), px(z["hi"]), fmt(pct(z["hi"], z["c"])), px(stop), warn)
         if z["zone"] == "high":
             return "🔴 循環股高檔：已到近 %d 年平均高點 %s 附近，不要買；有持股分批賣出%s" % (z["n"], px(z["hi"]), warn)
@@ -428,8 +431,9 @@ def advise(s, t, row=None):
     if c[t] < m20 and m20 < m20p:
         return "⚪ 觀望：還在下跌趨勢（月線 %s 往下），收盤站回月線再考慮" % px(tk(m20))
     if r > 75 or c[t] / m20 - 1 > 0.12:
-        return "🟡 不追高：等拉回月線 %s 附近再買，跌破 %s 停損" % (px(tk(m20)), px(tk(m20 - 2 * A)))
-    lo, stop = tk(max(c[t] - A, m10)), tk(c[t] - 2 * A)
+        return "🟡 不追高：等拉回月線 %s 附近再買，跌破 %s 停損" % (px(tk(m20)), px(tk(m20 * (1 - STOP))))
+    lo = tk(max(c[t] - A, m10))
+    stop = tk((lo + c[t]) / 2 * (1 - STOP))
     tgt = tk(c[t] + 3 * A)
     tg = "目標 %s" % px(tgt) + ("、一年高點 %s" % px(hi1y) if hi1y > tgt * 1.02 else "")
     return "🟢 可買：%s～%s 分批買，跌破 %s 停損，%s" % (px(lo), px(c[t]), px(stop), tg)
