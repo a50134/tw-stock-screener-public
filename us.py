@@ -43,10 +43,20 @@ UNIVERSE = {
 
 
 def yahoo(t, years=6):
-    url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%dy&interval=1d&events=div%%2Csplits&includeAdjustedClose=true" % (t, years)
-    r = requests.get(url, headers=UA, timeout=30)
-    r.raise_for_status()
-    res = r.json()["chart"]["result"][0]
+    """Yahoo 偶爾回 429（太頻繁）：query1、query2 輪流試 2 輪，中間稍等"""
+    err = None
+    for k, host in enumerate(("query1", "query2", "query1", "query2")):
+        try:
+            url = "https://%s.finance.yahoo.com/v8/finance/chart/%s?range=%dy&interval=1d&events=div%%2Csplits&includeAdjustedClose=true" % (host, t, years)
+            r = requests.get(url, headers=UA, timeout=30)
+            r.raise_for_status()
+            res = r.json()["chart"]["result"][0]
+            break
+        except Exception as e:
+            err = e
+            time.sleep(1 + 2 * k)
+    else:
+        raise err
     q = res["indicators"]["quote"][0]
     adj = res["indicators"].get("adjclose", [{}])[0].get("adjclose") or q["close"]
     rows = []
@@ -63,7 +73,7 @@ def yahoo(t, years=6):
 def finmind(t, years=6):
     import fetch_finmind
     s0 = (dt.date.today() - dt.timedelta(days=365 * years)).isoformat()
-    data = fetch_finmind.get("USStockPrice", t, s0)
+    data = fetch_finmind.get("USStockPrice", t, s0, wait=False)  # 台股抓完時 FinMind 額度常用完，不等
     rows, divs = [], []
     for d in data:
         c = d.get("Close")
@@ -94,7 +104,7 @@ def history(t):
 def fx():
     try:
         import fetch_finmind
-        d = fetch_finmind.get("TaiwanExchangeRate", "USD", (dt.date.today() - dt.timedelta(days=10)).isoformat())
+        d = fetch_finmind.get("TaiwanExchangeRate", "USD", (dt.date.today() - dt.timedelta(days=10)).isoformat(), wait=False)
         v = [x.get("spot_sell") for x in d if x.get("spot_sell")]
         if v:
             return float(v[-1])
@@ -207,7 +217,11 @@ def report(cfg):
     hold = U.get("holdings") or []
     tickers = list(dict.fromkeys(["VOO"] + [h["t"] for h in hold] + list(U.get("watch") or []) + list(UNIVERSE)))
     S, names = {}, {}
+    t0, must = time.time(), {"VOO"} | {h["t"] for h in hold}
     for k, t in enumerate(tickers, 1):
+        if time.time() - t0 > 600 and t not in must:  # 最多花 10 分鐘（以前 FinMind 額度用完會一檔等 10 分鐘，拖慢整份報告約 1 小時）
+            print("美股資料超過 10 分鐘，剩下的候選股略過", file=sys.stderr, flush=True)
+            break
         rows, divs, nm = history(t)
         if rows:
             S[t] = stats(rows, divs)
