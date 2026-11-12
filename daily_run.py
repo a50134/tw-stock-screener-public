@@ -129,6 +129,9 @@ def main():
     cfg_path = os.path.join(DIR, "sop_config.json")
     cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {}
     ids = [str(x) for x in (cfg.get("universe") or [])]
+    # 一定要抓：0050（大盤替身：大跌撿好股、國安基金、正2、偏弱判斷都靠它）＋國安基金護盤股
+    # （2026-11-12 0050 被全市場成交量排名擠出名單，那晚這幾段全部沒出來）
+    ids = list(dict.fromkeys(["0050", "2330", "2317", "2308", "2382", "2454"] + ids))
     if cfg.get("state") and cfg["state"].get("watch"):
         ids += [x for x in cfg["state"]["watch"] if x not in ids]
     oc = cfg.get("orders") or {}
@@ -304,6 +307,13 @@ def main():
             if ctext:
                 add(["report_discord.txt", "report_line.txt"], ctext)
                 log("大跌撿好股已加入報告")
+            try:  # 月結算提醒：外資台指期淨空單 7 萬口以上、結算前 3 個交易日內
+                stext = crash.settle_line(ld("data.json")["dates"][-1])
+                if stext:
+                    add(["report_discord.txt", "report_line.txt"], stext)
+                    log("月結算提醒已加入報告")
+            except Exception as e:
+                log("月結算提醒失敗，略過：", e)
             ltext = crash.lev_line(ld("data.json"), reg)  # 0050 正2 能不能買（反1 不建議）
             if ltext:
                 add(["report_discord.txt", "report_line.txt"], ltext)

@@ -276,7 +276,7 @@ def rescue_phase(data, t):
             d1 = (c[t] / max(c[j0:t + 1]) - 1) * 100
             picks.append("%s %s（離這波高點 %+.0f%%）" % (nm, exits.px(c[t]), d1))
     what = "、".join(picks)
-    tbl = rescue_table(by, t, j0)
+    tbl = rescue_table(by, t, j0, i)
     if m[t] < lo:
         return head + "\n　🔴 已跌破進場前低點＝第二隻腳進行中：先不買，等大盤落地指標 3 項以上再分批（最後 40% 資金留給這裡）" + hist + tbl
     if dn <= -6:
@@ -298,12 +298,15 @@ def tick(p):
     return exits.px(round(round(p / u) * u, 2))
 
 
-def rescue_table(by, t, j0):
+def rescue_table(by, t, j0, i0=None):
     """護盤股買賣表（使用者 2026-11-12 要的）：每檔買進區、停損、目標、現在在哪
     買進區＝這檔自己這波高點回跌 4～8%（對應 0050 回跌 6%）；停損＝買進價 −8%；
-    目標 1＝月線（太近就用買進區上緣 +10%）、目標 2＝季線（太近就用目標 1 +8%）"""
-    L = ["　📋 護盤股買賣表（買點要等 0050 回跌買點 🟢 才動手；停損一律買進價 −8%）："]
-    for sid, nm, ex in RESCUE_PICKS:
+    目標 1＝月線（太近就用買進區上緣 +10%）、目標 2＝季線（太近就用目標 1 +8%）
+    先站上月線（settle_bt.py 回測 9 次護盤、184 筆）：進場後 5 天內站上月線的抱 120 天比大盤多賺 +4.5%，
+    10 天內都沒站上的 −5.6%、72% 輸大盤 → 🌙 排前面、⚠️ 落後的不買"""
+    L = ["　📋 護盤股買賣表（買點要等 0050 回跌買點 🟢 才動手；停損一律買進價 −8%；🌙 先站上月線的排前面）："]
+    rows = []
+    for k, (sid, nm, ex) in enumerate(RESCUE_PICKS):
         x = by.get(sid)
         if not x or not x["c"][t]:
             continue
@@ -321,10 +324,60 @@ def rescue_table(by, t, j0):
             now = "🟢 已在買進區"
         else:
             now = "⚠️ 跌破買進區，等止穩（大盤沒破低再買）"
-        L.append("　・%s %s｜買進 %s～%s｜停損 %s（買進價 −8%%）｜目標 %s → %s｜%s｜護盤後 120 天比大盤多賺 %s" % (
-            nm, exits.px(z), tick(lo_), tick(hi_), tick(mid * (1 - STOP_PCT)), tick(t1), tick(t2), now, ex))
+        moon, rank = "", 1
+        if i0 is not None:
+            ma20 = lambda u: sum(c[u - 19:u + 1]) / 20
+            day = next((u - i0 for u in range(i0, min(t, i0 + 10) + 1) if c[u] and c[u] > ma20(u)), None)
+            if day is not None:
+                moon, rank = "🌙 第 %d 天站上月線（比較強）" % (day + 1), 0
+            elif t - i0 >= 10:
+                moon, rank = "⚠️ 落後：10 天內沒站上月線（回測 72%% 輸大盤，不買）", 2
+            else:
+                moon = "還沒站上月線 %s（差 %.0f%%）" % (tick(m20), (m20 / z - 1) * 100)
+        rows.append((rank, k, "　・%s %s｜%s買進 %s～%s｜停損 %s（買進價 −8%%）｜目標 %s → %s｜%s｜護盤後 120 天比大盤多賺 %s" % (
+            nm, exits.px(z), moon + "｜" if moon else "", tick(lo_), tick(hi_), tick(mid * (1 - STOP_PCT)), tick(t1), tick(t2), now, ex)))
+    L += [x[2] for x in sorted(rows)]
     L.append("　賣法：到目標 1 或連續長上影線先賣一半，剩下抱到目標 2；0050 跌破進場前低點、個股跌破停損、或新聞「國安基金退場」就出場。金融股護盤後大多輸大盤，不列。")
     return "\n" + "\n".join(L) if len(L) > 2 else ""
+
+
+SETTLE_SHORT = 70000  # 外資台指期淨空單門檻（口）
+
+
+def third_wed(y, m):
+    import datetime as dt
+    d = dt.date(y, m, 1)
+    d += dt.timedelta(days=(2 - d.weekday()) % 7)
+    return d + dt.timedelta(days=14)
+
+
+def settle_line(day, net=None):
+    """月結算提醒（使用者 2026-11-12 同意；settle_bt.py 回測 2018 年起 101 次結算）：
+    外資台指期淨空單 7 萬口以上時，結算前 3 天大盤平均 −0.7%、3 天內最多跌 −1.7%（其他時候 −0.9%），結算後 5 天平均 +0.5～1.2%。
+    效果不大、樣本少（7 萬口以上只有 4 次），所以只提醒、不改推薦。day＝資料日（YYYY-MM-DD）；net＝外資淨未平倉（負＝淨空單），None 就自己抓"""
+    import datetime as dt
+    d0 = dt.date.fromisoformat(day)
+    s = third_wed(d0.year, d0.month)
+    if s <= d0:
+        y, m = (d0.year + (d0.month == 12), d0.month % 12 + 1)
+        s = third_wed(y, m)
+    left = sum(1 for k in range(1, (s - d0).days + 1) if (d0 + dt.timedelta(days=k)).weekday() < 5)  # 還有幾個交易日（不含國定假日）
+    if left > 3:
+        return ""
+    if net is None:
+        try:
+            import fetch_finmind
+            fetch_finmind.TOKEN = fetch_finmind.TOKEN or (os.environ.get("FINMIND_TOKEN") or "").strip()
+            rows = fetch_finmind.get("TaiwanFuturesInstitutionalInvestors", "TX", (d0 - dt.timedelta(days=10)).isoformat(), wait=False)
+            f = sorted((r for r in rows if r.get("institutional_investors") == "外資"), key=lambda r: r["date"])
+            net = f[-1]["long_open_interest_balance_volume"] - f[-1]["short_open_interest_balance_volume"] if f else None
+        except Exception:
+            net = None
+    if net is None or net > -SETTLE_SHORT:
+        return ""
+    return ("📅 月結算提醒：%s（週三）台指期結算，還剩 %d 個交易日；外資淨空單 %s 口（7 萬口以上）\n"
+            "　回測 2018 年起：空單這麼多時，結算前 3 天大盤常被壓低約 1～2%%，結算後 5 天平均反彈 +0.5～1%%。想買的可以等結算後再買；只是參考，不影響推薦。") % (
+        "%d/%d" % (s.month, s.day), left, "{:,}".format(-net))
 
 
 def rescue_text(data, t):
