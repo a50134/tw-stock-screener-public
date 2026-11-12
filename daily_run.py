@@ -216,11 +216,12 @@ def main():
             if os.path.exists(pp):
                 P = json.load(open(pp, encoding="utf-8"))
                 weak = analysis.market_weak(P)
-                n = analysis.guard_breakout(P, weak)
-                nc = analysis.guard_cycle(P, json.load(open(os.path.join(DIR, "data.json"), encoding="utf-8")))  # 循環股在平均高點附近
+                dj = json.load(open(os.path.join(DIR, "data.json"), encoding="utf-8"))
+                n = analysis.guard_breakout(P, weak, dj)  # 只因跌破季線偏弱時，權值股（市值前 50）照常推薦
+                nc = analysis.guard_cycle(P, dj)  # 循環股在平均高點附近
                 if n or nc:
                     json.dump(P, open(pp, "w", encoding="utf-8"), ensure_ascii=False)
-                log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔；循環股在高檔改先觀望 %d 檔" % (weak or "不弱", n, nc))
+                log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔（權值股照常）；循環股在高檔改先觀望 %d 檔" % (weak or "不弱", n, nc))
         except Exception as e:
             log("大盤偏弱檢查失敗，略過：", e)
         PRIV = "report_line_private.txt"  # 只給自己（發 Discord，不佔 LINE 額度）：持股、買賣紀錄；群發的 report_line.txt 不放持股
