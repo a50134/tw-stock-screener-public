@@ -1,14 +1,15 @@
 name: 盤中即時提醒
 
 # 開盤前與盤中：大盤急漲急跌、重大消息（國安基金、央行…）、昨晚推薦股急漲急跌、持股到價或有新聞，就發到 Discord（只發 Discord，不發 LINE）
-# 09:00～11:00 與 13:00～13:30 每 10 分鐘，其餘每 30 分鐘（GitHub 排程常會晚幾分鐘到十幾分鐘）
+# 09:00～11:00 與 13:00～13:35 每 10 分鐘，其餘每 30 分鐘
+# GitHub 排程很不準（2026-11-11 設每 30 分鐘，實際一天只跑 2 次），所以改成「早上啟動一次，在同一次執行裡自己每 10／30 分鐘檢查到收盤」
+# 07:17 開盤前看隔夜新聞；08:41 啟動盤中迴圈（晚啟動也會跑到 13:35；早上 08:40 的 Claude 保險排程也會補啟動）
 # 公開專案的執行紀錄任何人都看得到：程式只印「幾則提醒」，不印股票代號和新聞
 on:
   schedule:
-    - cron: '17 23 * * 0-4'      # 台灣時間週一～五 07:17（開盤前，看隔夜新聞）
-    - cron: '3-53/10 1-2 * * 1-5'  # 台灣時間 09:03～10:53 每 10 分鐘（開盤後波動最大）
-    - cron: '7,37 3-4 * * 1-5'     # 台灣時間 11:07～12:37 每 30 分鐘
-    - cron: '3,13,23,33 5 * * 1-5' # 台灣時間 13:03～13:33 每 10 分鐘（尾盤）
+    - cron: '17 23 * * 0-4'      # 台灣時間週一～五 07:17（開盤前，看隔夜新聞，只跑一次）
+    - cron: '41 0 * * 1-5'       # 台灣時間週一～五 08:41 啟動盤中迴圈
+    - cron: '11 4 * * 1-5'       # 台灣時間 12:11 保險：上午那次沒啟動或中斷時，接手跑到收盤
   workflow_dispatch:
 
 permissions:
@@ -19,7 +20,7 @@ concurrency: holding-alert
 jobs:
   alert:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 330
     env:
       TZ: Asia/Taipei
       PYTHONIOENCODING: utf-8
@@ -38,18 +39,26 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q requests
-      - name: 檢查持股價位與新聞
+      - name: 盤中檢查（開盤前只跑一次；盤中每 10／30 分鐘一次，跑到 13:35）
         run: |
           [ -f priv/sop_config.json ] || { echo "沒有私人資料（PRIVATE_REPO_TOKEN），略過"; exit 0; }
           python private_sync.py pull priv > /dev/null
-          python alert.py
-      - name: 記錄已提醒過的（存回私人專案，同一則不重複發）
-        if: hashFiles('alert_state.json') != ''
-        run: |
-          cp alert_state.json priv/
-          cd priv
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add alert_state.json
-          git commit -q -m "更新持股提醒紀錄" || exit 0
-          for i in 1 2 3; do git pull -q --rebase --autostash && git push -q && break || sleep 5; done
+          git -C priv config user.name "github-actions[bot]"
+          git -C priv config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          save() {   # 已提醒過的存回私人專案，同一則不重複發
+            [ -f alert_state.json ] || return 0
+            cp alert_state.json priv/
+            git -C priv add alert_state.json
+            git -C priv commit -q -m "更新持股提醒紀錄" || return 0
+            for i in 1 2 3; do git -C priv pull -q --rebase --autostash && git -C priv push -q && break || sleep 5; done
+          }
+          while :; do
+            echo "[$(date +%H:%M)] 檢查"
+            python alert.py || echo "這次檢查失敗，下次再試"
+            save || true
+            now=$((10#$(date +%H%M)))
+            [ "$(date +%u)" -ge 6 ] && break          # 週末只跑一次
+            [ "$now" -lt 840 ] && break               # 開盤前（07:17 那次）只跑一次
+            [ "$now" -ge 1335 ] && break              # 收盤了
+            if [ "$now" -lt 1100 ] || [ "$now" -ge 1250 ]; then sleep 600; else sleep 1800; fi
+          done
