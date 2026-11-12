@@ -276,16 +276,55 @@ def rescue_phase(data, t):
             d1 = (c[t] / max(c[j0:t + 1]) - 1) * 100
             picks.append("%s %s（離這波高點 %+.0f%%）" % (nm, exits.px(c[t]), d1))
     what = "、".join(picks)
+    tbl = rescue_table(by, t, j0)
     if m[t] < lo:
-        return head + "\n　🔴 已跌破進場前低點＝第二隻腳進行中：先不買，等大盤落地指標 3 項以上再分批（最後 40% 資金留給這裡）" + hist
+        return head + "\n　🔴 已跌破進場前低點＝第二隻腳進行中：先不買，等大盤落地指標 3 項以上再分批（最後 40% 資金留給這裡）" + hist + tbl
     if dn <= -6:
         return (head + "\n　🟢 回跌買點到了（從高點回 6%% 以上、還沒破低點 %s）：可以買第 2 批 30%%，不要一次買滿，留 40%% 防跌破低點" % exits.px(lo)
-                + "\n　👉 買什麼（國安基金必買、護盤後漲最多的排前面）：" + what + hist)
+                + "\n　👉 買什麼（國安基金必買、護盤後漲最多的排前面）：" + what + hist + tbl)
     if b >= 13 or (m[t] >= ma10 and dn > -3):
         return (head + "\n　🟠 已到第一波高點區（彈 13%% 以上或站上 10 日線）：短線不追高、手上短線有賺的可以先收一些；回跌買點在 0050 %s（從高點回 6%%），跌破 %s 是第二隻腳" % (
-            exits.px(buy), exits.px(lo)) + hist)
+            exits.px(buy), exits.px(lo)) + hist + tbl)
     return (head + "\n　🟡 正在回跌或還沒彈夠：回跌買點在 0050 %s（還差 %.1f%%），到了再買第 2 批；跌破 %s 是第二隻腳" % (
-        exits.px(buy), (m[t] / buy - 1) * 100, exits.px(lo)) + hist)
+        exits.px(buy), (m[t] / buy - 1) * 100, exits.px(lo)) + hist + tbl)
+
+
+STOP_PCT = 0.08  # 護盤股停損一律 −8%（使用者 2026-11-12 決定）
+
+
+def tick(p):
+    """價格調成台股的跳動單位（例如 1191.4 → 1190、232.32 → 232.5）"""
+    u = 0.01 if p < 10 else 0.05 if p < 50 else 0.1 if p < 100 else 0.5 if p < 500 else 1 if p < 1000 else 5
+    return exits.px(round(round(p / u) * u, 2))
+
+
+def rescue_table(by, t, j0):
+    """護盤股買賣表（使用者 2026-11-12 要的）：每檔買進區、停損、目標、現在在哪
+    買進區＝這檔自己這波高點回跌 4～8%（對應 0050 回跌 6%）；停損＝買進價 −8%；
+    目標 1＝月線（太近就用買進區上緣 +10%）、目標 2＝季線（太近就用目標 1 +8%）"""
+    L = ["　📋 護盤股買賣表（買點要等 0050 回跌買點 🟢 才動手；停損一律買進價 −8%）："]
+    for sid, nm, ex in RESCUE_PICKS:
+        x = by.get(sid)
+        if not x or not x["c"][t]:
+            continue
+        c = x["c"]
+        pk = max(v for v in c[j0:t + 1] if v)
+        lo_, hi_ = pk * 0.92, pk * 0.96
+        mid = (lo_ + hi_) / 2
+        m20, m60 = sum(c[t - 19:t + 1]) / 20, sum(c[t - 59:t + 1]) / 60
+        t1 = m20 if m20 > hi_ * 1.05 else hi_ * 1.10
+        t2 = m60 if m60 > t1 * 1.03 else t1 * 1.08
+        z = c[t]
+        if z > hi_:
+            now = "還要跌 %.0f%% 才到" % ((z / hi_ - 1) * 100)
+        elif z >= lo_:
+            now = "🟢 已在買進區"
+        else:
+            now = "⚠️ 跌破買進區，等止穩（大盤沒破低再買）"
+        L.append("　・%s %s｜買進 %s～%s｜停損 %s（買進價 −8%%）｜目標 %s → %s｜%s｜護盤後 120 天比大盤多賺 %s" % (
+            nm, exits.px(z), tick(lo_), tick(hi_), tick(mid * (1 - STOP_PCT)), tick(t1), tick(t2), now, ex))
+    L.append("　賣法：到目標 1 或連續長上影線先賣一半，剩下抱到目標 2；0050 跌破進場前低點、個股跌破停損、或新聞「國安基金退場」就出場。金融股護盤後大多輸大盤，不列。")
+    return "\n" + "\n".join(L) if len(L) > 2 else ""
 
 
 def rescue_text(data, t):
