@@ -70,7 +70,8 @@ DEFAULT = (
 ).split()
 
 
-def get(dataset, sid="", start=""):
+def get(dataset, sid="", start="", wait=True):
+    """wait=False：碰到每小時請求上限就直接放棄（美股段落用，不要為了備援資料等 10 分鐘）"""
     params = {"dataset": dataset}
     if sid:
         params["data_id"] = sid
@@ -86,6 +87,8 @@ def get(dataset, sid="", start=""):
                 return j.get("data", [])
             msg = str(j.get("msg", r.status_code))
             if r.status_code == 402 or "limit" in msg.lower():  # 每小時請求上限：等 10 分鐘再試
+                if not wait:
+                    return []
                 print("  … 到達 FinMind 請求上限，10 分鐘後繼續", file=sys.stderr, flush=True)
                 time.sleep(600)
                 continue
