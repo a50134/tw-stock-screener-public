@@ -194,8 +194,80 @@ def main():
     print("  0050 在年線（240 日）上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 240, t)), DD))
     print("  0050 在月線和季線上才抱正2：%s" % curve_stats(run(lambda t: m[t] > ma(m, 20, t) and m[t] > ma(m, 60, t)), DD))
     inverse(D, m, rv, L2, n, s0, run_any=lambda cond, S: run_series(S, cond, s0, n), DD=DD)
+    simulate(D, m, L2, n, s0, DD)
     t = n - 1
     print("\n現在（%s）：0050 月線 %s、季線 %s、年線 %s" % (D[t], "上" if m[t] > ma(m, 20, t) else "下", "上" if m[t] > ma(m, 60, t) else "下", "上" if m[t] > ma(m, 240, t) else "下"))
+
+
+def simulate(D, m, L2, n, s0, DD):
+    """2026-11-13 使用者要的：照我們現在的規則「模擬買」0050 和正2，跟一直抱比
+    正2 規則（crash.lev_line）：衰退警訊沒亮、0050 在年線上才買；分 3 筆——條件成立那天買第 1 筆，
+    之後 0050 單日跌 2% 以上、或距上一筆滿 10 個交易日就買下一筆；0050 收盤跌破年線或警訊亮就全部賣掉，條件再成立重新開始。
+    0050 規則：同樣分 3 筆、同樣進出（看 0050 用同一套規則會怎樣）；另外看「0050 一直抱、只在大跌（5 日跌 6%）時加碼」"""
+    reg = regime_series(D) or {}
+    y = lambda t: ma(m, 240, t)
+    print("\n" + "=" * 60 + "\n【模擬照規則買 0050／正2】（%s 起，每筆交易扣 0.3%%；沒買的錢放著不生利息）" % D[s0])
+    print("衰退警訊資料：%s" % ("有" if reg else "抓不到，只用年線"))
+
+    def run(S, label):
+        cash, units, lots, last, trades, days_in = 1.0, 0.0, 0, -99, 0, 0
+        eq = []
+        for t in range(s0, n):
+            ok = m[t] >= y(t) and not reg.get(D[t], False)
+            if units and not ok:  # 出場
+                cash += units * S[t] * (1 - COST)
+                units, lots = 0.0, 0
+                trades += 1
+            elif ok and lots < 3:
+                drop = m[t] / m[t - 1] - 1 <= -0.02
+                if lots == 0 or drop or t - last >= 10:
+                    amt = cash / (3 - lots)  # 剩下的錢平均分給還沒買的筆數
+                    units += amt * (1 - COST) / S[t]
+                    cash -= amt
+                    lots += 1
+                    last = t
+                    trades += 1
+            days_in += 1 if units else 0
+            eq.append(cash + units * S[t])
+        print("  %s：%s｜交易 %d 次｜有持股的天數 %.0f%%" % (label, curve_stats(eq, DD), trades, 100 * days_in / (n - s0)))
+        return eq
+    print("  一直抱 0050：%s" % curve_stats([m[t] / m[s0] for t in range(s0, n)], DD))
+    print("  一直抱正2：%s" % curve_stats([L2[t] / L2[s0] for t in range(s0, n)], DD))
+    run(L2, "照規則買正2（分 3 筆、跌破年線出場）")
+    run(m, "照規則買 0050（同樣規則）")
+    # 0050 一直抱，大跌時加碼：先放 50%，每次大跌（5 日跌 6%）加碼剩下現金的一半
+    cash, units = 0.5, 0.5 / m[s0]
+    eq, last = [], -99
+    for t in range(s0, n):
+        if t >= 5 and m[t] / m[t - 5] - 1 <= -0.06 and t - last > 5 and cash > 0.01:
+            amt = cash / 2
+            units += amt * (1 - COST) / m[t]
+            cash -= amt
+            last = t
+        eq.append(cash + units * m[t])
+    print("  0050 先買一半、每次大跌加碼剩下的一半：%s" % curve_stats(eq, DD))
+    # 年度報酬
+    print("\n  每年報酬：年份｜0050 一直抱｜正2 一直抱｜照規則買正2")
+    rule = []
+    cash, units, lots, last = 1.0, 0.0, 0, -99
+    for t in range(s0, n):
+        ok = m[t] >= y(t) and not reg.get(D[t], False)
+        if units and not ok:
+            cash += units * L2[t] * (1 - COST)
+            units, lots = 0.0, 0
+        elif ok and lots < 3 and (lots == 0 or m[t] / m[t - 1] - 1 <= -0.02 or t - last >= 10):
+            amt = cash / (3 - lots)
+            units += amt * (1 - COST) / L2[t]
+            cash -= amt
+            lots += 1
+            last = t
+        rule.append(cash + units * L2[t])
+    yrs = sorted({d[:4] for d in DD})
+    for yy in yrs:
+        ix = [k for k, d in enumerate(DD) if d[:4] == yy]
+        a_, b_ = ix[0], ix[-1]
+        f = lambda S: (S[b_] / S[a_ - 1 if a_ else a_] - 1) * 100
+        print("  %s｜%+6.1f%%｜%+6.1f%%｜%+6.1f%%" % (yy, f([m[t] for t in range(s0, n)]), f([L2[t] for t in range(s0, n)]), f(rule)))
 
 
 def run_series(S, cond, s0, n):

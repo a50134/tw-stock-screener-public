@@ -405,8 +405,8 @@ def advise(s, t, row=None):
         warn = "；⚠️ 原料新聞：%s，價位可能要調整" % "／".join(z["news"]) if z["news"] else ""
         if z["zone"] == "low":
             stop = tk(min(z["lo"], z["c"]) * (1 - STOP))
-            return "🟢 循環股低檔可買：接近近 %d 年平均低點 %s，分批買；目標平均高點 %s（%s）；跌破 %s 停損（買價 −8%%）%s" % (
-                z["n"], px(z["lo"]), px(z["hi"]), fmt(pct(z["hi"], z["c"])), px(stop), warn)
+            return "🟢 循環股低檔可買：接近近 %d 年平均低點 %s，下個交易日起分批掛 %s 以下買；目標平均高點 %s（%s）；跌破 %s 停損（買價 −8%%）%s" % (
+                z["n"], px(z["lo"]), px(tk(max(z["lo"] * 1.1, min(z["c"], z["lo"] * 1.1)))), px(z["hi"]), fmt(pct(z["hi"], z["c"])), px(stop), warn)
         if z["zone"] == "high":
             return "🔴 循環股高檔：已到近 %d 年平均高點 %s 附近，不要買；有持股分批賣出%s" % (z["n"], px(z["hi"]), warn)
         if z["pos"] >= CYC_HIGH:  # 中間偏高：不買（2026-11 華新在 74% 位置買進後跌 18%）
@@ -421,8 +421,8 @@ def advise(s, t, row=None):
         if row.get("state") == "hold":
             return "⚪ 先觀望：%s，追突破、追強勢股這時容易追高被套；等大盤轉強再考慮（參考 %s，跌破 %s 停損）" % (row.get("hold_why") or "大盤偏弱", z, px(row["stop"]))
         if row.get("state") == "ok":
-            return "🟢 可買：%s 分批買，跌破 %s 停損%s" % (z, px(row["stop"]), tg)
-        return "🟡 等拉回：跌到 %s 再買，跌破 %s 停損%s" % (z, px(row["stop"]), tg)
+            return "🟢 可買：下個交易日 09:00～13:30 掛 %s 分批買，跌破 %s 停損%s" % (z, px(row["stop"]), tg)
+        return "🟡 等拉回：下個交易日起掛 %s（%s 以下才買），沒成交就不追；跌破 %s 停損%s" % (z, px(row["hi"]), px(row["stop"]), tg)
     c = s["c"]
     A, r = exits.atr(s, t), exits.rsi(c, t)
     m20, m20p, m10 = ma(c, 20, t), ma(c, 20, t - 5), ma(c, 10, t)
@@ -431,12 +431,12 @@ def advise(s, t, row=None):
     if c[t] < m20 and m20 < m20p:
         return "⚪ 觀望：還在下跌趨勢（月線 %s 往下），收盤站回月線再考慮" % px(tk(m20))
     if r > 75 or c[t] / m20 - 1 > 0.12:
-        return "🟡 不追高：等拉回月線 %s 附近再買，跌破 %s 停損" % (px(tk(m20)), px(tk(m20 * (1 - STOP))))
+        return "🟡 不追高：等拉回月線 %s 附近再買（下個交易日起掛 %s 以下），跌破 %s 停損" % (px(tk(m20)), px(tk(m20 * 1.01)), px(tk(m20 * (1 - STOP))))
     lo = tk(max(c[t] - A, m10))
     stop = tk((lo + c[t]) / 2 * (1 - STOP))
     tgt = tk(c[t] + 3 * A)
     tg = "目標 %s" % px(tgt) + ("、一年高點 %s" % px(hi1y) if hi1y > tgt * 1.02 else "")
-    return "🟢 可買：%s～%s 分批買，跌破 %s 停損，%s" % (px(lo), px(c[t]), px(stop), tg)
+    return "🟢 可買：下個交易日 09:00～13:30 掛 %s～%s 分批買，跌破 %s 停損，%s" % (px(lo), px(c[t]), px(stop), tg)
 
 
 def block(s, f, prof, row=None, hold=None):

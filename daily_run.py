@@ -437,6 +437,10 @@ def main():
             notes = ["風險偏高（%s）：只因量價突破／穩健動能入選的 %d 檔先觀望（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:12]))] if hold else []
             if cyc_h:
                 notes.append("循環股在高檔先觀望（已到近 5 年平均高點附近）：%s" % "、".join(r["name"] for r in cyc_h[:12]))
+            # 國安基金買點、0050 正2：什麼時候買、多少錢（2026-11-13 使用者要 LINE 也看得到）
+            buy_now = [x.strip() for t_ in (locals().get("ctext") or "", locals().get("ltext") or "") for x in t_.split("\n")
+                       if x.strip().startswith(("⏳", "🟢", "🟠", "🟡", "🔴", "👉", "📊")) and "歷史 9 次" not in x]
+            notes = [x.split("（歷史")[0] for x in buy_now] + notes
             notes += [x for x in (cycle or "").split("\n") if x.strip()]  # 循環股谷底轉強
             macro = [m.get("title", "") for m in (ld("data.json", {}).get("macro") or [])[:5] if m.get("title")]
             if macro:
