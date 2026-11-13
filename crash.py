@@ -541,6 +541,38 @@ def dip_nightly(data, reg=None, look=3):
     return "\n".join(L)
 
 
+def intraday_levels(data, reg=None):
+    """給盤中提醒用的 0050 價位（每晚算好存進 sop_plan.json 的 levels，2026-11-13 使用者要的）：
+    年線（正2 出場線）、正2 能不能買、國安基金進場後的回跌買點和第二隻腳低點"""
+    D = data["dates"]
+    by = {x["id"]: x for x in data["stocks"]}
+    x = by.get("0050")
+    if not x:
+        return {}
+    c = x["c"]
+    t = len(D) - 1
+    cc = [v for v in c if v]
+    adj = [cc[0]]
+    for i in range(1, len(cc)):
+        r = cc[i] / cc[i - 1] - 1
+        adj.append(adj[-1] * (1 + (0 if abs(r) > 0.25 else r)))
+    out = {"date": D[t], "close": c[t]}
+    if len(adj) >= 241:
+        out["yline"] = round(sum(adj[-240:]) / 240 * cc[-1] / adj[-1], 2)
+        out["lev_ok"] = bool(not (reg and reg[0]) and c[t] >= out["yline"])
+    ev = [d for d in RESCUE_DATES if d <= D[t]]
+    i = next((k for k, d in enumerate(D) if ev and d >= ev[-1]), None)
+    if i is not None and 10 <= i and t - i <= 20:
+        j0 = min(range(i - 10, i + 1), key=lambda k: c[k] or 9e9)
+        lo, pk = c[j0], max(c[j0:t + 1])
+        hx = x.get("h") or []
+        eh = hx[i] if len(hx) > i and hx[i] else None
+        above = eh is not None and any(c[u] and c[u] > eh * 1.02 for u in range(i + 1, t + 1))
+        out["rescue"] = {"buy": round(max(pk * 0.94, eh if above else 0), 2), "eh": eh if above else None, "dn6": round(pk * 0.94, 2),
+                         "lo": lo, "day": t - i + 1}
+    return out
+
+
 def lev_line(data, reg=None):
     """0050 正2（00631L）能不能買（2026-11-11 使用者要的；lev_bt.py 回測 2010 年起）
     回測：0050 在年線上才抱正2 年化 +18.7%、最大跌幅 −38%（一直抱正2 +27.9%／−55%、一直抱 0050 +15.8%／−34%）；

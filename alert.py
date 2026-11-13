@@ -201,10 +201,45 @@ def classify(title):
     return None
 
 
-def market_scan(st, seen_px, seen_news, plan_rows, quotes):
+def level_alerts(z, y, lv, Q, seen_px):
+    """0050 到價提醒（2026-11-13 使用者要的）：國安基金回跌買點、第二隻腳、年線；連同正2（00631L）、反1（00632R）一起說"""
+    if not z or not lv:
+        return []
+    L2 = lambda: "；".join("%s %s%s" % (nm, exits.px(q[1] or q[0]), "（%+.1f%%）" % ((q[1] or q[0]) / q[2] * 100 - 100) if q[2] and (q[1] or q[0]) else "")
+                           for nm, q in (("正2", Q.get("00631L")), ("反1", Q.get("00632R"))) if q and (q[1] or q[0]))
+    out = []
+    rs = lv.get("rescue") or {}
+    g = (z / y - 1) * 100 if y else 0
+
+    def add(k, txt):
+        if k not in seen_px:
+            seen_px.add(k)
+            out.append(txt + ("\n　→ 現在：%s" % L2() if L2() else ""))
+    if rs.get("buy") and rs.get("lo") and rs["lo"] < z <= rs["buy"]:
+        why = "拉回到國安基金進場日高點 %s" % exits.px(rs["eh"]) if rs.get("eh") and rs["buy"] == rs["eh"] else "從反彈高點回跌 6%%（%s）" % exits.px(rs["dn6"])
+        add("lv:rescue_buy", "🟢 0050 盤中 %s 到國安基金回跌買點（%s），還沒破低點 %s\n"
+            "　→ 建議：可以買第 2 批 30%%（不要一次買滿，留 40%% 防跌破低點）；買什麼看昨晚報告的護盤股買賣表（🌙 先站上月線的優先），停損買進價 −15%%\n"
+            "　→ 正2：%s\n　→ 反1：不建議，回測 2010 年起怎麼抱都賠" % (exits.px(z), why, exits.px(rs["lo"]),
+                                                    "也可以買一筆（共分 3 筆），0050 收盤跌破年線 %s 就出場" % exits.px(lv["yline"]) if lv.get("lev_ok") else "先不買（衰退警訊亮或 0050 在年線下）"))
+    if rs.get("lo") and z < rs["lo"]:
+        add("lv:rescue_lo", "🔴 0050 盤中 %s 跌破國安基金進場前低點 %s（第二隻腳）\n"
+            "　→ 建議：先不買；已經買的護盤股、正2 跌破停損就照紀律出場；最後 40%% 資金等大盤止跌訊號再分批\n"
+            "　→ 反1：回測跌破低點後買反1，抱 20 天勝率只有 18%%，不建議追空" % (exits.px(z), exits.px(rs["lo"])))
+    yl = lv.get("yline")
+    if yl and y and y >= yl > z:
+        add("lv:yline", "⚠️ 0050 盤中 %s 跌破年線 %s\n"
+            "　→ 正2：收盤如果還在年線下，就照規則出場（回測：年線上才抱正2，年化 +18.7%%、最大跌幅 −38%%）\n"
+            "　→ 反1：不建議買，回測跌破年線就買反1，抱 60 天勝率只有 15%%" % (exits.px(z), exits.px(yl)))
+    if lv.get("lev_ok") and g <= -2:
+        add("lv:lev_dip", "🟢 0050 盤中 %+.1f%%（跌 2%% 以上）：正2 分批買點，可以買一筆（共分 3 筆、每 1～2 週最多一筆）\n"
+            "　→ 條件：衰退警訊沒亮、0050 在年線 %s 上；0050 收盤跌破年線就出場" % (g, exits.px(yl)))
+    return out
+
+
+def market_scan(st, seen_px, seen_news, plan_rows, quotes, levels=None):
     """大盤急漲急跌、重大消息、昨晚推薦股急漲急跌；回傳 (文字區塊清單, 則數)。會更新 st["mkt"]、seen_px、seen_news"""
     blocks, n = [], 0
-    ids = ["0050"] + [r["id"] for r in plan_rows]
+    ids = ["0050", "00631L", "00632R"] + [r["id"] for r in plan_rows]
     try:
         Q = quotes(ids)
     except Exception as e:
@@ -261,6 +296,10 @@ def market_scan(st, seen_px, seen_news, plan_rows, quotes):
             seen_px.add("big:%s:%d" % (kw, cnt))
             st["big_today"] = (st.get("big_today") or [])[-5:] + [it["title"][:40]]
             N.append("・%s %s（%s %s）\n　→ 影響：%s\n　→ 原因：%s\n　→ 建議：%s" % (icon, it["title"], it["d"], it["src"], eff, why, tip))
+    LV = level_alerts(z, y, levels, Q, seen_px) if z else []
+    if LV:
+        blocks.append("\n".join(["【0050／正2／反1 到價】"] + ["・" + x for x in LV]))
+        n += len(LV)
     if L:
         reason = "、".join("「%s」" % t for t in (st.get("big_today") or [])[-2:]) or "沒找到相關的重大新聞，可能是外資進出、期貨或美股影響，先看收盤"
         blocks.append("\n".join(["【大盤】"] + ["・" + x.replace("WHY", reason) for x in L]))
@@ -347,8 +386,9 @@ def main():
     st["day"] = today
     seen_px, seen_news = set(st.get("px", [])), set(st.get("news", []))
     from morning_check import quotes
-    rows = [r for r in (ld("sop_plan.json", {}) or {}).get("rows", []) if r.get("state") == "ok" and r["id"] not in H]
-    blocks, n_mkt = market_scan(st, seen_px, seen_news, rows, quotes) if "--no-market" not in sys.argv else ([], 0)
+    SP = ld("sop_plan.json", {}) or {}
+    rows = [r for r in SP.get("rows", []) if r.get("state") == "ok" and r["id"] not in H]
+    blocks, n_mkt = market_scan(st, seen_px, seen_news, rows, quotes, SP.get("levels")) if "--no-market" not in sys.argv else ([], 0)
     try:
         Q = {k: {"o": v[0], "z": v[1], "y": v[2]} for k, v in quotes(list(H)).items()} if H else {}
     except Exception as e:
