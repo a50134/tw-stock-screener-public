@@ -314,6 +314,15 @@ def main():
                     log("月結算提醒已加入報告")
             except Exception as e:
                 log("月結算提醒失敗，略過：", e)
+            try:  # 盤中提醒用的 0050 價位（國安基金買點、年線、正2 能不能買）存進開盤檢查名單
+                pp = os.path.join(DIR, "sop_plan.json")
+                if os.path.exists(pp):
+                    P2 = json.load(open(pp, encoding="utf-8"))
+                    P2["levels"] = crash.intraday_levels(ld("data.json"), reg)
+                    json.dump(P2, open(pp, "w", encoding="utf-8"), ensure_ascii=False)
+                    log("盤中價位：", P2["levels"])
+            except Exception as e:
+                log("盤中價位計算失敗，略過：", e)
             ltext = crash.lev_line(ld("data.json"), reg)  # 0050 正2 能不能買（反1 不建議）
             if ltext:
                 add(["report_discord.txt", "report_line.txt"], ltext)
