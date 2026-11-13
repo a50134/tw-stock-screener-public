@@ -314,6 +314,14 @@ def main():
                     log("月結算提醒已加入報告")
             except Exception as e:
                 log("月結算提醒失敗，略過：", e)
+            try:  # 台幣由貶轉升提醒（大盤資訊，可發 LINE；回測 20 次之後 120 天大盤平均 +11%）
+                import fx
+                ftext = fx.line()
+                if ftext:
+                    add(["report_discord.txt", "report_line.txt"], ftext)
+                    log("台幣提醒：", ftext[:60])
+            except Exception as e:
+                log("台幣提醒失敗，略過：", e)
             try:  # 盤中提醒用的 0050 價位（國安基金買點、年線、正2 能不能買）存進開盤檢查名單
                 pp = os.path.join(DIR, "sop_plan.json")
                 if os.path.exists(pp):
@@ -441,6 +449,9 @@ def main():
             buy_now = [x.strip() for t_ in (locals().get("ctext") or "", locals().get("ltext") or "") for x in t_.split("\n")
                        if x.strip().startswith(("⏳", "🟢", "🟠", "🟡", "🔴", "👉", "📊")) and "歷史 9 次" not in x]
             notes = [x.split("（歷史")[0] for x in buy_now] + notes
+            ftx = locals().get("ftext") or ""
+            if ftx:  # 台幣：有訊號放最前面，沒訊號放後面
+                notes = ([ftx] + notes) if "訊號 " in ftx and "出現" in ftx else (notes + [ftx.split("（過去")[0]])
             notes += [x for x in (cycle or "").split("\n") if x.strip()]  # 循環股谷底轉強
             macro = [m.get("title", "") for m in (ld("data.json", {}).get("macro") or [])[:5] if m.get("title")]
             if macro:
