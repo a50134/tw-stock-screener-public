@@ -106,6 +106,43 @@ def send_morning(imgs):
         raise RuntimeError("Discord 與 LINE 都發送失敗")
 
 
+def when_price(k, r, px, why):
+    """直接寫出什麼時候買、掛多少（2026-11-13 使用者要求）"""
+    tg = "｜目標 %s" % fmt(r["t1"]) if r.get("t1") else ""
+    if k == "buy":
+        return "✅ 可買：現在到 13:30 收盤前，掛 %s～%s 分批買｜停損 %s%s" % (fmt(r["lo"]), fmt(min(px, r["hi"])), fmt(r["stop"]), tg)
+    if k == "wait" and px > r["chase"]:
+        return "⏳ 等拉回：今天掛 %s 以下，13:30 前沒成交就不追｜停損 %s%s" % (fmt(r["chase"]), fmt(r["stop"]), tg)
+    if k == "wait":
+        return "⏳ 先不買：%s；收盤站回 %s 以上，明天開盤再買" % (why, fmt(r["lo"]))
+    return "❌ 今天不買：%s" % why
+
+
+def rescue_lines(P, q):
+    """國安基金回跌買點、正2：今天什麼時候買、掛多少（價位前一晚 crash.intraday_levels 算好）"""
+    from exits import px as px_
+    lv = P.get("levels") or {}
+    out = []
+    z0 = (q.get("0050") or (None, None, None))
+    px0 = z0[0] or z0[1]
+    rs = lv.get("rescue") or {}
+    if rs.get("buy"):
+        hit = px0 and rs["lo"] < px0 <= rs["buy"]
+        out.append("🛡️ 國安基金回跌買點：0050 %s 以下就買第 2 批 30%%（跌破 %s 不買）%s" % (
+            px_(rs["buy"]), px_(rs["lo"]), "｜✅ 0050 開 %s，已經到了，現在到 13:30 可以買" % px_(px0) if hit else "｜0050 開 %s，還沒到，盤中到價會通知" % px_(px0) if px0 else ""))
+        for r in lv.get("picks") or []:
+            o = (q.get(r["id"]) or (None, None, None))
+            p = o[0] or o[1]
+            ok = hit and p and p <= r["hi"]
+            out.append("・%s%s｜%s掛 %s～%s｜停損 %s（−15%%）" % (r["name"], " 開 %s" % px_(p) if p else "", "✅ 現在可買，" if ok else "0050 到價後", px_(r["lo"]), px_(r["hi"]), px_(r["stop"])))
+    if lv.get("lev_ok") and lv.get("yline"):
+        o = (q.get("00631L") or (None, None, None))
+        p2 = o[0] or o[1]
+        out.append("📊 0050 正2：可分批買（共 3 筆）；今天 0050 跌 2%% 以上就再買一筆%s｜0050 收盤跌破年線 %s 就出場" % (
+            "，正2 開 %s，掛 %s 以下" % (px_(p2), px_(p2)) if p2 else "", px_(lv["yline"])))
+    return out
+
+
 def main():
     now_mode, dry, force = "--now" in sys.argv, "--dry-run" in sys.argv, "--force" in sys.argv
     today = dt.date.today()
@@ -144,7 +181,7 @@ def main():
         pre = premarket.overview()[0]
     except Exception as e:
         print("開盤前觀察失敗，略過：", e, flush=True)
-    if not rows and not holds:  # 沒有名單也沒有持股：只發開盤前觀察
+    if not rows and not holds and not (P.get("levels") or {}).get("rescue"):  # 沒有名單、持股、國安基金買點：只發開盤前觀察
         print(pre or "昨晚名單沒有股票、也沒有持股，不發送。", flush=True)
         if pre and not dry:
             with open(os.path.join(DIR, "morning_report.txt"), "w", encoding="utf-8") as f:
@@ -161,14 +198,15 @@ def main():
             print("等待開盤，%.0f 秒後抓價" % wait, flush=True)
             time.sleep(wait)
     deadline = dt.datetime.now() + dt.timedelta(minutes=3)
-    ids = list(dict.fromkeys([r["id"] for r in rows] + [h["id"] for h in holds]))
+    lvl_ids = ["0050", "00631L"] + [r["id"] for r in (P.get("levels") or {}).get("picks") or []] if P.get("levels") else []
+    ids = list(dict.fromkeys([r["id"] for r in rows] + [h["id"] for h in holds] + lvl_ids))
     q = {}
     while True:
         try:
             q = quotes(ids)
         except Exception as e:
             print("抓報價失敗：", e, flush=True)
-        missing = [x for x in ids if not q.get(x) or (q[x][0] is None and q[x][1] is None)]
+        missing = [x for x in ids if x not in lvl_ids and (not q.get(x) or (q[x][0] is None and q[x][1] is None))]
         if not missing or dt.datetime.now() >= deadline:
             break
         time.sleep(20)
@@ -183,8 +221,7 @@ def main():
         r = dict(r, prev=y or r["prev"])  # 漲跌幅用證交所的昨收
         k, t, why = verdict(r, px, P)
         g = (px / r["prev"] - 1) * 100
-        groups[k].append((-(r.get("score") or 0), "・%s %s 開 %s（%+.1f%%）｜%s：%s｜停損 %s" % (
-            r["id"], r["name"], fmt(px), g, t, why, fmt(r["stop"]))))
+        groups[k].append((-(r.get("score") or 0), "・%s %s 開 %s（%+.1f%%）｜%s" % (r["id"], r["name"], fmt(px), g, when_price(k, r, px, why))))
     L = ["☀️ 條件選股室｜開盤檢查 %s %s" % (today.isoformat(), dt.datetime.now().strftime("%H:%M")), ""]
     try:  # 開盤後重抓一次，用最新的美股期貨與台指期
         import premarket
@@ -209,6 +246,9 @@ def main():
             for k in ("sell", "trim", "warn", "keep"):
                 H += hg[k]
             priv = "\n".join(H)
+    RL = rescue_lines(P, q)
+    if RL:
+        L += RL + [""]
     L += ["檢查昨晚推薦的 %d 檔（%s 收盤篩選，國際風險：%s）；其餘 %d 檔昨晚已說先不建議" % (len(rows), P.get("date"), P.get("risk"), len(rest)), ""]
     # 精簡：每組只列分數最高的幾檔（一檔一行、都有建議），其餘只列名字並說明一律照該組建議
     for k, title, top in (("buy", "🟢 可買", 8), ("wait", "🟡 等待", 4), ("no", "🔴 不要買", 4), ("none", "⚪ 沒有報價", 4)):
@@ -234,7 +274,7 @@ def main():
         import morning_img
         for x in glob.glob(os.path.join(DIR, "開盤_*.*")):
             os.remove(x)
-        secs = [(k, "%s（%d 檔）" % (t, len(groups[k])), [x[1] for x in sorted(groups[k], key=lambda x: x[0])])
+        secs = ([("buy", "國安基金買點／0050 正2", RL)] if RL else []) + [(k, "%s（%d 檔）" % (t, len(groups[k])), [x[1] for x in sorted(groups[k], key=lambda x: x[0])])
                 for k, t in (("buy", "可買"), ("wait", "等待"), ("no", "不要買"), ("none", "沒有報價"))]
         imgs = morning_img.build(L[0], "檢查昨晚推薦的 %d 檔（%s 收盤篩選，國際風險：%s）" % (len(rows), P.get("date"), P.get("risk")), pre, secs)
         print("開盤圖卡：", "、".join(os.path.basename(x) for x in imgs), flush=True)
