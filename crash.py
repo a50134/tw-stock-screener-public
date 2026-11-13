@@ -281,18 +281,27 @@ def rescue_phase(data, t):
             d1 = (c[t] / max(c[j0:t + 1]) - 1) * 100
             picks.append("%s %s（離這波高點 %+.0f%%）" % (nm, exits.px(c[t]), d1))
     what = "、".join(picks)
-    tbl = rescue_table(by, t, j0, i)
+    R = []
+    tbl = rescue_table(by, t, j0, i, R)
+    R = sorted((r for r in R if r["rank"] < 2), key=lambda r: (r["rank"], r["k"]))
+    nd = next_day(D[t])
+    p2 = ((by.get("00631L") or {}).get("c") or [None])[-1]
+    order = "、".join("%s %s 以下" % (r["name"], exits.px(r["hi"])) for r in R)
+    howto = ("\n　👉 什麼時候買、多少錢：%s盤中（09:00～13:30），0050 跌到 %s 以下就是買點（盤中到價會發 Discord）；到時候掛限價買第 2 批 30%%：%s；停損買進價 −15%%%s" % (
+        nd, exits.px(buy), order, "；正2 約 %s 以下可買一筆" % tick(lev_px(p2, m[t], buy)) if p2 else "")) if order else ""
     if m[t] < lo:
         return head + "\n　🔴 已跌破進場前低點＝第二隻腳進行中：先不買，等大盤落地指標 3 項以上再分批（最後 40% 資金留給這裡）" + hist + tbl
     if m[t] <= buy:
         why = "拉回到國安基金進場日高點 %s" % exits.px(eh) if above and buy == eh and dn > -6 else "從高點回 6% 以上"
+        now_buy = "、".join("%s %s～%s" % (r["name"], exits.px(r["lo"]), exits.px(r["hi"])) for r in R)
         return (head + "\n　🟢 回跌買點到了（%s、還沒破低點 %s）：可以買第 2 批 30%%，不要一次買滿，留 40%% 防跌破低點" % (why, exits.px(lo))
+                + ("\n　👉 什麼時候買、多少錢：%s 開盤就可以掛限價買：%s（停損買進價 −15%%）" % (nd, now_buy) if now_buy else "")
                 + "\n　👉 買什麼（國安基金必買、護盤後漲最多的排前面）：" + what + hist + tbl)
     if b >= 13 or (m[t] >= ma10 and dn > -3):
         return (head + "\n　🟠 已到第一波高點區（彈 13%% 以上或站上 10 日線）：短線不追高、手上短線有賺的可以先收一些；回跌買點在 0050 %s，跌破 %s 是第二隻腳" % (
-            lvl, exits.px(lo)) + hist + tbl)
+            lvl, exits.px(lo)) + howto + hist + tbl)
     return (head + "\n　🟡 正在回跌或還沒彈夠：回跌買點在 0050 %s（離較近的 %s 還差 %.1f%%），到了再買第 2 批；跌破 %s 是第二隻腳" % (
-        lvl, exits.px(buy), (m[t] / buy - 1) * 100, exits.px(lo)) + hist + tbl)
+        lvl, exits.px(buy), (m[t] / buy - 1) * 100, exits.px(lo)) + howto + hist + tbl)
 
 
 STOP_PCT = 0.15  # 護盤股、抄底（逆勢買）停損買進價 −15%＋分 3 批（使用者 2026-11-13 決定；回測抄底第 1 批：−8% 抱 60 天勝率 35%、+6.9%，−15% 48%、+7.8%，−20% 60%、+13.4%，跌深股常先再跌 8～15% 才反彈）
@@ -304,7 +313,21 @@ def tick(p):
     return exits.px(round(round(p / u) * u, 2))
 
 
-def rescue_table(by, t, j0, i0=None):
+def next_day(day):
+    """下一個交易日（只跳過週末，國定假日不算）→ '11/16（週一）'"""
+    import datetime as dt
+    d = dt.date.fromisoformat(day) + dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d += dt.timedelta(days=1)
+    return "%d/%d（週%s）" % (d.month, d.day, "一二三四五六日"[d.weekday()])
+
+
+def lev_px(p2, c0, lv):
+    """0050 到 lv 時，正2 大約多少（正2 每天漲跌約 0050 的 2 倍）"""
+    return p2 * (1 + 2 * (lv / c0 - 1)) if p2 and c0 and lv else None
+
+
+def rescue_table(by, t, j0, i0=None, rows_out=None):
     """護盤股買賣表（使用者 2026-11-12 要的）：每檔買進區、停損、目標、現在在哪
     買進區＝這檔自己這波高點回跌 4～8%（對應 0050 回跌 6%）；停損＝買進價 −15%（逆勢買，分 3 批）；
     目標 1＝月線（太近就用買進區上緣 +10%）、目標 2＝季線（太近就用目標 1 +8%）
@@ -340,6 +363,9 @@ def rescue_table(by, t, j0, i0=None):
                 moon, rank = "⚠️ 落後：10 天內沒站上月線（回測 72%% 輸大盤，不買）", 2
             else:
                 moon = "還沒站上月線 %s（差 %.0f%%）" % (tick(m20), (m20 / z - 1) * 100)
+        if rows_out is not None:
+            rows_out.append({"id": sid, "name": nm, "rank": rank, "k": k, "lo": float(tick(lo_).replace(",", "")), "hi": float(tick(hi_).replace(",", "")),
+                             "stop": float(tick(mid * (1 - STOP_PCT)).replace(",", "")), "t1": float(tick(t1).replace(",", "")), "close": z})
         rows.append((rank, k, "　・%s %s｜%s買進 %s～%s｜停損 %s（−15%%）｜目標 %s → %s｜%s｜護盤後 120 天比大盤多賺 %s" % (
             nm, exits.px(z), moon + "｜" if moon else "", tick(lo_), tick(hi_), tick(mid * (1 - STOP_PCT)), tick(t1), tick(t2), now, ex)))
     L += [x[2] for x in sorted(rows)]
@@ -570,6 +596,12 @@ def intraday_levels(data, reg=None):
         above = eh is not None and any(c[u] and c[u] > eh * 1.02 for u in range(i + 1, t + 1))
         out["rescue"] = {"buy": round(max(pk * 0.94, eh if above else 0), 2), "eh": eh if above else None, "dn6": round(pk * 0.94, 2),
                          "lo": lo, "day": t - i + 1}
+        R = []
+        rescue_table(by, t, j0, i, R)
+        out["picks"] = sorted((r for r in R if r["rank"] < 2), key=lambda r: (r["rank"], r["k"]))
+    p2 = ((by.get("00631L") or {}).get("c") or [None])[-1]
+    if p2:
+        out["lev2"] = p2
     return out
 
 
@@ -604,8 +636,16 @@ def lev_line(data, reg=None):
             exits.px(c[-1]), exits.px(y), gap, "；近 3 天剛大跌，回測大跌隔天買抱 60 天勝率 76%" if big else "")
     L = ["📊 " + head]
     if not warn and c[-1] >= y:
-        L.append("　做法：分 3 筆、每 1～2 週買一筆（或大盤單日跌 2%% 以上那天買一筆）；金額要能接受中途先賠 3～4 成；0050 收盤跌破年線 %s 就出場%s" % (
-            exits.px(y), "；離年線只剩 %.0f%%，要特別小心" % gap if gap < 5 else ""))
+        p2 = ((next((s for s in S if s["id"] == "00631L"), None) or {}).get("c") or [None])[-1]
+        nd = next_day(data["dates"][-1])
+        if p2:
+            L.append("　👉 什麼時候買、多少錢：第 1 筆 %s開盤，正2 掛 %s 以下（今天收 %s）；第 2 筆等 0050 單日跌 2%% 以上那天（盤中會通知），或 1～2 週後；第 3 筆再隔 1～2 週" % (
+                nd, tick(p2 * 1.005), exits.px(p2)))
+            L.append("　出場：0050 收盤跌破年線 %s（正2 大約 %s）就賣；金額要能接受中途先賠 3～4 成%s" % (
+                exits.px(y), tick(lev_px(p2, c[-1], y)), "；離年線只剩 %.0f%%，要特別小心" % gap if gap < 5 else ""))
+        else:
+            L.append("　做法：分 3 筆、每 1～2 週買一筆（或大盤單日跌 2%% 以上那天買一筆）；金額要能接受中途先賠 3～4 成；0050 收盤跌破年線 %s 就出場%s" % (
+                exits.px(y), "；離年線只剩 %.0f%%，要特別小心" % gap if gap < 5 else ""))
     L.append("　0050 反1：不建議。回測 2010 年起怎麼抱都賠（年線下才抱年化 −7%、跌破年線就買抱 60 天勝率 15%），台股長期往上，反1 每天還會耗損")
     return "\n".join(L)
 

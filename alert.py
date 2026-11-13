@@ -217,10 +217,25 @@ def level_alerts(z, y, lv, Q, seen_px):
             out.append(txt + ("\n　→ 現在：%s" % L2() if L2() else ""))
     if rs.get("buy") and rs.get("lo") and rs["lo"] < z <= rs["buy"]:
         why = "拉回到國安基金進場日高點 %s" % exits.px(rs["eh"]) if rs.get("eh") and rs["buy"] == rs["eh"] else "從反彈高點回跌 6%%（%s）" % exits.px(rs["dn6"])
+        now = dt.datetime.now(TW).strftime("%H:%M")
+        P = []
+        for r in lv.get("picks") or []:
+            q = Q.get(r["id"]) or ()
+            px_ = (q[1] or q[0]) if q else None
+            if not px_:
+                P.append("　　%s：掛 %s～%s（停損 %s）" % (r["name"], exits.px(r["lo"]), exits.px(r["hi"]), exits.px(r["stop"])))
+            elif px_ <= r["hi"]:
+                P.append("　　✅ %s 現在 %s：可以買，掛 %s 以下（買進區 %s～%s，停損 %s）" % (r["name"], exits.px(px_), exits.px(min(px_, r["hi"])), exits.px(r["lo"]), exits.px(r["hi"]), exits.px(r["stop"])))
+            else:
+                P.append("　　⏳ %s 現在 %s：還沒到，掛 %s 等（停損 %s）" % (r["name"], exits.px(px_), exits.px(r["hi"]), exits.px(r["stop"])))
+        q2 = Q.get("00631L") or ()
+        p2 = (q2[1] or q2[0]) if q2 else None
         add("lv:rescue_buy", "🟢 0050 盤中 %s 到國安基金回跌買點（%s），還沒破低點 %s\n"
-            "　→ 建議：可以買第 2 批 30%%（不要一次買滿，留 40%% 防跌破低點）；買什麼看昨晚報告的護盤股買賣表（🌙 先站上月線的優先），停損買進價 −15%%\n"
-            "　→ 正2：%s\n　→ 反1：不建議，回測 2010 年起怎麼抱都賠" % (exits.px(z), why, exits.px(rs["lo"]),
-                                                    "也可以買一筆（共分 3 筆），0050 收盤跌破年線 %s 就出場" % exits.px(lv["yline"]) if lv.get("lev_ok") else "先不買（衰退警訊亮或 0050 在年線下）"))
+            "　→ 什麼時候買：現在（%s）到今天 13:30 收盤前，買第 2 批 30%%（不要一次買滿，留 40%% 防跌破低點）\n"
+            "　→ 買哪檔、多少錢（停損買進價 −15%%）：\n%s\n"
+            "　→ 正2：%s\n　→ 反1：不建議，回測 2010 年起怎麼抱都賠" % (exits.px(z), why, exits.px(rs["lo"]), now, "\n".join(P) or "　　看昨晚報告的護盤股買賣表",
+                                                    ("現在 %s，可以買一筆（共分 3 筆），掛 %s 以下；0050 收盤跌破年線 %s 就出場" % (exits.px(p2), exits.px(p2), exits.px(lv["yline"])) if p2 else
+                                                     "可以買一筆（共分 3 筆），0050 收盤跌破年線 %s 就出場" % exits.px(lv["yline"])) if lv.get("lev_ok") else "先不買（衰退警訊亮或 0050 在年線下）"))
     if rs.get("lo") and z < rs["lo"]:
         add("lv:rescue_lo", "🔴 0050 盤中 %s 跌破國安基金進場前低點 %s（第二隻腳）\n"
             "　→ 建議：先不買；已經買的護盤股、正2 跌破停損就照紀律出場；最後 40%% 資金等大盤止跌訊號再分批\n"
@@ -231,15 +246,19 @@ def level_alerts(z, y, lv, Q, seen_px):
             "　→ 正2：收盤如果還在年線下，就照規則出場（回測：年線上才抱正2，年化 +18.7%%、最大跌幅 −38%%）\n"
             "　→ 反1：不建議買，回測跌破年線就買反1，抱 60 天勝率只有 15%%" % (exits.px(z), exits.px(yl)))
     if lv.get("lev_ok") and g <= -2:
-        add("lv:lev_dip", "🟢 0050 盤中 %+.1f%%（跌 2%% 以上）：正2 分批買點，可以買一筆（共分 3 筆、每 1～2 週最多一筆）\n"
-            "　→ 條件：衰退警訊沒亮、0050 在年線 %s 上；0050 收盤跌破年線就出場" % (g, exits.px(yl)))
+        q2 = Q.get("00631L") or ()
+        p2 = (q2[1] or q2[0]) if q2 else None
+        add("lv:lev_dip", "🟢 0050 盤中 %+.1f%%（跌 2%% 以上）：正2 分批買點\n"
+            "　→ 什麼時候買：現在（%s）到今天 13:30 收盤前，買一筆（共分 3 筆、每 1～2 週最多一筆）\n"
+            "　→ 多少錢：%s\n"
+            "　→ 出場：0050 收盤跌破年線 %s" % (g, dt.datetime.now(TW).strftime("%H:%M"), "正2 現在 %s，掛 %s 以下" % (exits.px(p2), exits.px(p2)) if p2 else "正2 照市價掛單", exits.px(yl)))
     return out
 
 
 def market_scan(st, seen_px, seen_news, plan_rows, quotes, levels=None):
     """大盤急漲急跌、重大消息、昨晚推薦股急漲急跌；回傳 (文字區塊清單, 則數)。會更新 st["mkt"]、seen_px、seen_news"""
     blocks, n = [], 0
-    ids = ["0050", "00631L", "00632R"] + [r["id"] for r in plan_rows]
+    ids = list(dict.fromkeys(["0050", "00631L", "00632R"] + [r["id"] for r in (levels or {}).get("picks") or []] + [r["id"] for r in plan_rows]))
     try:
         Q = quotes(ids)
     except Exception as e:

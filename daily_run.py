@@ -131,7 +131,7 @@ def main():
     ids = [str(x) for x in (cfg.get("universe") or [])]
     # 一定要抓：0050（大盤替身：大跌撿好股、國安基金、正2、偏弱判斷都靠它）＋國安基金護盤股
     # （2026-11-12 0050 被全市場成交量排名擠出名單，那晚這幾段全部沒出來）
-    ids = list(dict.fromkeys(["0050", "2330", "2317", "2308", "2382", "2454"] + ids))
+    ids = list(dict.fromkeys(["0050", "00631L", "00632R", "2330", "2317", "2308", "2382", "2454"] + ids))  # 正2、反1：報告和盤中通知要寫價位
     if cfg.get("state") and cfg["state"].get("watch"):
         ids += [x for x in cfg["state"]["watch"] if x not in ids]
     oc = cfg.get("orders") or {}
