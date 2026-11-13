@@ -1,0 +1,19 @@
+name: 投信成本、庫藏股、年線回測
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
+      - run: python research/nov13_bt.py data.json
