@@ -163,6 +163,10 @@ def check(s, dates, h, prof=None):
     hw = [x for x in (s.get("hw") or []) if x.get("big") is not None]
     if len(hw) >= 3 and hw[-1]["big"] < hw[-2]["big"] < hw[-3]["big"]:
         warn.append("千張大戶持股連 2 週減少（%.1f%% → %.1f%%），大戶在出貨" % (hw[-3]["big"], hw[-1]["big"]))
+    mg = s.get("mg") or []  # 融資暴增＋股價在高檔＝散戶追高（2026-11-14 回測：融資 20 天增 5% 以上＋創 60 天新高，抱 20 天勝率 35%，融資減少的 44%）
+    if len(mg) > t >= 60 and mg[t] and mg[t - 20] and mg[t] / mg[t - 20] - 1 >= 0.05 and c[t] >= max(c[t - 59:t + 1]) * 0.97:
+        warn.append("融資 20 天增加 %s（%s → %s 張）、股價在 60 天高點附近，散戶追高，籌碼變亂，小心回檔" % (
+            fmt(pct(mg[t], mg[t - 20])), "{:,}".format(round(mg[t - 20])), "{:,}".format(round(mg[t]))))
     ins = s.get("ins") or {}
     if ins.get("n30"):
         warn.append("內部人近 30 天申報要賣 %s 張（董監、經理人或大股東），留意是否高檔出貨" % "{:,}".format(ins["sell30"]))
