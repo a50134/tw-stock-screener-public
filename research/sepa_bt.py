@@ -103,7 +103,9 @@ def main(path):
     tix = {x: i for i, x in enumerate(TD)}
     V = {k: [] for k in ("A 只看趨勢樣板＋帶量突破 20 日高", "B 趨勢樣板＋VCP＋量縮＋帶量突破（不加濾網）",
                          "C 完整 SEPA（B＋相對強度＋大盤在 50 日線上）", "D 完整 SEPA＋大盤改看 200 日線",
-                         "E 對照：同樣出場法，任何一天買（每 20 天抽一次）")}
+                         "E 對照：同樣出場法，任何一天買（每 20 天抽一次）",
+                         "A1 A＋強過大盤（250 日漲幅贏加權）", "A2 A＋強過大盤＋大盤在 50 日線上", "A3 A＋強過大盤＋大盤在 200 日線上",
+                         "A4 A＋強過大盤，但改成固定抱 20 天、−8% 停損（我們現在的回測方式）")}
     ok = 0
     for _, x in U:
         rows = yahoo(x["id"] + (".TWO" if x.get("mkt") == "tpex" else ".TW"))
@@ -137,6 +139,18 @@ def main(path):
                 if r:
                     busyA = t + r[2]
                     V["A 只看趨勢樣板＋帶量突破 20 日高"].append(r)
+                    i = tix.get(D[t])
+                    if i is not None and i >= 250 and c[t] / c[t - 250] - 1 > twc[i] / twc[i - 250] - 1:
+                        V["A1 A＋強過大盤（250 日漲幅贏加權）"].append(r)
+                        if twc[i] > twma(50, i):
+                            V["A2 A＋強過大盤＋大盤在 50 日線上"].append(r)
+                        if twc[i] > twma(200, i):
+                            V["A3 A＋強過大盤＋大盤在 200 日線上"].append(r)
+                        if t + 21 < n:
+                            e = o[t + 1]
+                            hit = next((k for k in range(t + 1, t + 22) if l[k] <= e * 0.92), None)
+                            ret = (min(o[hit], e * 0.92) / e - 1 if hit else c[t + 21] / e - 1) - 0.006
+                            V["A4 A＋強過大盤，但改成固定抱 20 天、−8% 停損（我們現在的回測方式）"].append((ret, ret / 0.08, 20, D[t]))
             seg = [(max(h[a:a + 20]), min(l[a:a + 20])) for a in (t - 60, t - 40, t - 20)]
             dd = [1 - lo / hi for hi, lo in seg]
             if not (dd[0] >= 0.10 and dd[0] > dd[1] > dd[2] and dd[2] <= 0.10):
@@ -176,13 +190,14 @@ def main(path):
             print("    賺的平均 %s、賠的平均 %s（賺賠比 %.1f）" % (pct(stt.mean(wins)), pct(stt.mean(loss)), stt.mean(wins) / -stt.mean(loss)))
         print("    逐年平均：" + "、".join("%s %s(%d)" % (y, pct(stt.mean(v)), len(v)) for y, v in sorted(yrs.items())))
     # 1% 風險部位模擬（完整 SEPA C）：每筆最多虧資金 1%、單筆上限 25%，依訊號日期順序、不管同時持有幾檔
-    L = sorted(V["C 完整 SEPA（B＋相對強度＋大盤在 50 日線上）"], key=lambda r: r[3])
-    if L:
+    for name in ("C 完整 SEPA（B＋相對強度＋大盤在 50 日線上）", "A 只看趨勢樣板＋帶量突破 20 日高", "A1 A＋強過大盤（250 日漲幅贏加權）"):
+      L = sorted(V[name], key=lambda r: r[3])
+      if L:
         eq = 1.0
         for ret, R, _, _ in L:
-            size = min(0.25, 0.01 / (ret / R if R else 0.07) if R and ret / R > 0 else 0.25)
+            size = min(0.25, 0.01 / (ret / R) if R and ret / R > 0 else 0.25)
             eq *= 1 + size * ret
-        print("\n完整 SEPA 用「每筆最多虧 1%%、單筆最多 25%%」下注，%d 筆依序做完：資金 ×%.2f（簡化：沒算同時持有）" % (len(L), eq))
+        print("%s 用「每筆最多虧 1%%、單筆最多 25%%」下注，%d 筆依序做完：資金 ×%.2f（簡化：沒算同時持有）" % (name[:2].strip(), len(L), eq))
 
 
 if __name__ == "__main__":
