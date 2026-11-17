@@ -3,7 +3,7 @@
 資料：網頁資料 data.json（約 1 年半）；策略每天選到的股票由 research/strat_hits.js 算（網頁同一套條件）
 新想法（單獨勝率低、沒加入的）：
   SEPA 趨勢樣板突破、16 種型態的偏多 8 種、融資換手（融資 20 天減 5%＋法人買＋創 60 天新高）、
-  一年高點 5% 內＋外資買、投信一直買＋股價在投信成本附近
+  一年高點 5% 內＋外資買、投信一直買＋股價在投信成本附近、MACD 翻正＋布林開口＋站上上揚月線（2026-11-17）
 搭配＝新想法今天出現訊號，而且這檔近 5 個交易日內被某策略選到 → 隔天開盤買，抱 20 天，跌 8% 停損，扣成本 0.6%
 同一個搭配、同一檔 20 天內只算一次；至少 15 筆才列出
 用法：node research/strat_hits.js data.json hits.json && python research/combo_bt.py data.json hits.json
@@ -17,6 +17,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pattern_bt import BULL, NAMES, detect, K, LB  # noqa: E402
 from sepa_bt import MA  # noqa: E402
+from macd_boll_bt import signals as mb_signals  # noqa: E402
 
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 hits = json.load(open(sys.argv[2], encoding="utf-8"))
@@ -68,6 +69,7 @@ for s in S:
     ph = [K <= i < n - K and h[i] == max(h[i - K:i + K + 1]) for i in range(n)]
     pl = [K <= i < n - K and l[i] == min(l[i - K:i + K + 1]) for i in range(n)]
     fi, it, mg = s.get("fi") or [], s.get("it") or [], s.get("mg") or []
+    mb = set(mb_signals(o, h, l, c, v)[0])
     for t in range(LB + 10, n - 2):
         if (mv(20, t - 1) or 0) < 300:
             continue
@@ -90,6 +92,8 @@ for s in S:
             cost = sum(a * b for a, b in ww) / sum(a for a, _ in ww)
             if -0.05 <= c[t] / cost - 1 <= 0.03:
                 sig.add("投信一直買＋股價在投信成本附近")
+        if t in mb:
+            sig.add("MACD 翻正＋布林開口＋站上上揚月線")
         for g in sig:
             IDEA.setdefault((g, sid), []).append(t)
 
