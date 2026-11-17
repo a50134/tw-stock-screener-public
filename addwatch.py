@@ -58,12 +58,26 @@ def stage(s, dm, t):
     return "📈 上漲中", "+DI %.0f > −DI %.0f、ADX %.0f" % (d["pdi"], d["mdi"], d["adx"])
 
 
-def review(s, plan, prof=None):
+def review(s, plan, prof=None, stop=None):
+    """stop：這檔持股的停損價（sop_config 的 orders.holds_plan / holds_stop）；跌破停損就不談加碼，避免和「該停損」的提醒互相打架"""
     t = len(s["c"]) - 1
     c = s["c"]
     dm = dmi_series(s)
     st, why = stage(s, dm, t)
     L = ["🎯 加碼計畫監控：%s %s（收 %s）" % (s["id"], s["name"], exits.px(c[t]))]
+    if stop and c[t] <= stop:
+        L.append("・⛔ 已跌破你的停損 %s：照停損賣出，不加碼（加碼計畫等之後重新評估）" % exits.px(stop))
+        return "\n".join(L)
+    if plan.get("paused"):  # 2026-11-17：暫停加碼，只看恢復條件（站回月線＋外資 5 日買超）
+        m20 = analysis.ma(c, 20, t)
+        fi = s.get("fi") or [0] * len(c)
+        f5 = sum(x or 0 for x in fi[t - 4:t + 1])
+        ok1, ok2 = bool(m20) and c[t] > m20, f5 > 0
+        L.append("・⏸ 加碼計畫暫停中（下跌中不接刀）%s" % ("；停損 %s" % exits.px(stop) if stop else ""))
+        L.append("・恢復條件：%s 收盤站回月線 %s　%s 外資 5 日轉買超（目前 %s 張）" % (
+            "☑" if ok1 else "☐", exits.px(m20) if m20 else "—", "☑" if ok2 else "☐", analysis.zh(f5)))
+        L.append("・➜ " + ("✅ 兩個條件都到了，可以考慮恢復分批加碼（先跟我確認）" if ok1 and ok2 else "條件還沒到，先不要加碼"))
+        return "\n".join(L)
     if plan.get("note"):
         L.append("・你的計畫：%s" % plan["note"])
     L.append("・階段：%s｜%s" % (st, why))
@@ -132,7 +146,12 @@ def nightly(data, cfg, profiles=None):
     if not plans:
         return ""
     by = {s["id"]: s for s in data["stocks"]}
-    out = [review(by[sid], p, (profiles or {}).get(sid)) for sid, p in plans.items() if sid in by and len(by[sid]["c"]) > 80]
+    oc = cfg.get("orders") if isinstance(cfg.get("orders"), dict) else {}
+    stops = {str(k): float(v) for k, v in (oc.get("holds_stop") or {}).items()}
+    for k, v in (oc.get("holds_plan") or {}).items():
+        if v.get("stop"):
+            stops[str(k)] = max(stops.get(str(k), 0), float(v["stop"]))
+    out = [review(by[sid], p, (profiles or {}).get(sid), stops.get(sid)) for sid, p in plans.items() if sid in by and len(by[sid]["c"]) > 80]
     return "\n\n".join(out)
 
 
