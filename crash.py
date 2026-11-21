@@ -567,6 +567,58 @@ def dip_nightly(data, reg=None, look=3):
     return "\n".join(L)
 
 
+def deep_rebound(data, reg=None, top=150, look=10):
+    """大跌時的「跌深反彈」名單（2026-11-21 使用者同意，出處：錢線百分百 11/20 博傑老師）
+    條件：0050 近 30 天內出現 5 日跌 6% 以上（大跌期間）；市值前 150 檔（均量 ≥500 張）收盤比 5 日線低 10% 以上、比年線低 20% 以上
+    買點：之後 10 天內「收盤站回 5 日線」隔天開盤買第 1 批（分 3 批），停損 −15%，抱 20～60 天
+    回測（research/nov20_bt.py，市值前 150 檔 2015～2026）：站回 5 日線才買 244 筆，抱 20 天勝率 68%、平均 +7.7%、最差 −14%；
+    抱 60 天 73%、+17.0%；同時大盤大跌的 201 筆抱 60 天 74%、+19.4%（隨便買 54%、+5.3%）。2018、2022 空頭年勝率只有 4 成多"""
+    D, S = data["dates"], data["stocks"]
+    t = len(D) - 1
+    m = next((x["c"] for x in S if x["id"] == "0050"), None)
+    if not m or t < 260 or not any(r5(m, u) <= TRIG for u in range(max(5, t - WINDOW + 1), t + 1)):
+        return ""
+    warn, rwhy = reg if reg is not None else regime()
+    U = sorted(((float(x["shares"]) * x["c"][t], x) for x in S
+                if not x["id"].startswith("00") and x.get("shares") and x["c"][t]), key=lambda z: -z[0])[:top]
+    ma = lambda c, k, i: sum(c[i - k + 1:i + 1]) / k
+    ready, wait, done = [], [], []
+    for _, x in U:
+        c, v = x["c"], x["v"]
+        if not all(c[t - 250:t + 1]) or sum(v[t - 20:t]) / 20 < 500:
+            continue
+        a = next((u for u in range(t, t - look - 1, -1) if c[u] <= ma(c, 5, u) * 0.90 and c[u] <= ma(c, 240, u) * 0.80), None)
+        if a is None:
+            continue
+        k = next((u for u in range(a + 1, t + 1) if c[u] > ma(c, 5, u)), None)
+        b240 = c[a] / ma(c, 240, a) - 1
+        if k == t:
+            ready.append((b240, x))
+        elif k is None:
+            wait.append((b240, x))
+        else:
+            done.append((b240, x, k))
+    if not (ready or wait or done):
+        return ""
+    nd = next_day(D[t])
+    L = ["🎯 跌深反彈（大跌期間、市值前 150 大、比 5 日線低 10%%＋比年線低 20%%）：%d 檔今天站回 5 日線、%d 檔還在跌深等待" % (len(ready), len(wait))]
+    if warn:
+        L.append("⚠️ 系統性衰退警訊（%s）：空頭年這招勝率只有 4 成多，先不買、只觀察" % rwhy)
+    for b, x in sorted(ready, key=lambda z: z[0])[:8]:
+        c = x["c"]
+        L.append("・🟢 %s %s 收 %s 站回 5 日線 %s（離年線 %+.0f%%）➜ %s 09:00 開盤%s，停損 %s（−15%%）" % (
+            x["id"], x["name"], exits.px(c[t]), exits.px(ma(c, 5, t)), b * 100, nd,
+            "先不買（衰退警訊）" if warn else "買第 1 批 30%%，掛 %s 以下、開盤大漲 3%% 以上不追" % tick(c[t] * 1.02), tick(c[t] * (1 - STOP_PCT))))
+    for b, x in sorted(wait, key=lambda z: z[0])[:8]:
+        c = x["c"]
+        L.append("・⏳ %s %s 收 %s（離年線 %+.0f%%）➜ 等收盤站回 5 日線 %s 以上，隔天開盤才買" % (
+            x["id"], x["name"], exits.px(c[t]), b * 100, exits.px(ma(c, 5, t))))
+    if done:
+        L.append("・已在前幾天站回 5 日線（第 1 批已觸發，沒買到不追）：" + "、".join("%s（%s）" % (x["name"], D[k][5:]) for _, x, k in sorted(done, key=lambda z: z[0])[:8]))
+    L.append("規則：站回 5 日線才買第 1 批 30%，第 2 批等站穩月線、第 3 批等帶量長紅；停損買進價 −15%，抱 20～60 天。回測：抱 20 天勝率 68%、平均 +7.7%；抱 60 天 73%、+17%（隨便買 54%、+5%）")
+    return "\n".join(L)
+
+
 def intraday_levels(data, reg=None):
     """給盤中提醒用的 0050 價位（每晚算好存進 sop_plan.json 的 levels，2026-11-13 使用者要的）：
     年線（正2 出場線）、正2 能不能買、國安基金進場後的回跌買點和第二隻腳低點"""
