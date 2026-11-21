@@ -13,7 +13,8 @@ def line(r):
     act = ("🟢 %s 可買" % z) if r.get("state") == "ok" else ("🟡 等跌到 %s" % z)
     return "・%s%s %s %s｜%s，停損 %s%s｜%s" % (
         analysis.star(r), r["id"], r["name"], analysis.px(r["prev"]), act, analysis.px(r["stop"]),
-        "，目標 %s" % analysis.px(r["t1"]) if r.get("t1") else "", "、".join((r.get("strategies") or [])[:2]) + ("等" if len(r.get("strategies") or []) > 2 else ""))
+        "，目標 %s" % analysis.px(r["t1"]) if r.get("t1") else "", "、".join((r.get("strategies") or [])[:2]) + ("等" if len(r.get("strategies") or []) > 2 else "")) + (
+        "｜📜過去先到目標 %d%%、先停損 %d%%" % (round(100 * r["record"]["t"] / r["record"]["n"]), round(100 * r["record"]["s"] / r["record"]["n"])) if r.get("record") else "")
 
 
 def pick(plan, top_ok=8, top_wait=5):
