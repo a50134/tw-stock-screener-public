@@ -9,7 +9,13 @@ const { JSDOM } = require('jsdom');
 const dir = __dirname;
 const dataPath = process.argv[2] || path.join(dir, 'data.json');
 const cfgPath = process.argv[3] || path.join(dir, 'sop_config.json');
-const html = fs.readFileSync(path.join(dir, 'stock-screener.html'), 'utf8');
+// 網頁程式包在函式裡，外面拿不到變數；在 window.__recent 旁邊多插一個 window.__allHits（只在記憶體裡改，不改網頁檔）
+// 用途：每個策略（含已刪除）過去每天選到哪些股票，算每檔推薦股的「真實紀錄」
+const HOOK = "window.__allHits=()=>{const o={};for(const st of S.strategies){const act=st.conds.filter(c=>c.on!==false);if(!act.length)continue;" +
+  "const need=st.mode==='all'?act.length:Math.min(Math.max(1,st.k),act.length);const days={};" +
+  "for(let t=65;t<=LAST;t++){const ids=evalAt(t,act,need).filter(x=>x.hit).map(x=>x.s.id);if(ids.length)days[t]=ids}" +
+  "o[st.id]={name:st.name,days}}return o};\n";
+const html = fs.readFileSync(path.join(dir, 'stock-screener.html'), 'utf8').replace('window.__recent=', HOOK + 'window.__recent=');
 const cfg = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : {};
 let clip = '';
 
@@ -172,6 +178,56 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         r.star = 2;
       }
     }
+    // 📜 真實紀錄（2026-11-21 使用者要的，取代「隨機模擬」）：這檔入選的策略過去每次選到股票時，
+    // 用這檔一樣的停損／目標百分比（隔天開盤買、20 個交易日內），先到目標、先停損、都沒到各幾次；另列這檔自己的紀錄
+    try {
+      const ALL = w.__allHits ? w.__allHits() : {};
+      const name2k = {};
+      for (const [k, v] of Object.entries(ALL)) name2k[v.name] = k;
+      const H = 20, n = DJ.dates.length;
+      const outcome = (s, t, sp, tp) => {
+        if (t + 1 + H >= n || !s.o[t + 1]) return null;
+        const e = s.o[t + 1];
+        for (let u = t + 1; u <= t + H; u++) {
+          if (!s.l[u] || !s.h[u]) return null;
+          if (s.l[u] <= e * sp) return 's';  // 同一天兩邊都碰到算停損（保守）
+          if (s.h[u] >= e * tp) return 't';
+        }
+        return 'n';
+      };
+      for (const r of plan.rows) {
+        if (!r.lo || !r.hi || !r.stop || !r.t1) continue;
+        const e0 = (r.lo + r.hi) / 2, sp = r.stop / e0, tp = r.t1 / e0;
+        const ks = [...new Set((r.strategies || []).map((nm) => name2k[nm]).filter(Boolean))];
+        if (!ks.length) continue;
+        const seen = new Set(), cnt = { t: 0, s: 0, n: 0 }, own = { t: 0, s: 0, n: 0 };
+        for (const k of ks) {
+          const last = {};
+          for (const [tt, ids] of Object.entries(ALL[k].days)) {
+            const t = +tt;
+            for (const id of ids) {
+              if (t - (last[id] ?? -99) <= 20) continue;
+              last[id] = t;
+              const key = id + '|' + t;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const st = byId[id], o = st && outcome(st, t, sp, tp);
+              if (!o) continue;
+              cnt[o]++;
+              if (id === r.id) own[o]++;
+            }
+          }
+        }
+        const N = cnt.t + cnt.s + cnt.n, M = own.t + own.s + own.n;
+        if (N < 10) continue;
+        const pc = (x, tot) => Math.round(100 * x / tot) + '%';
+        r.record = { n: N, t: cnt.t, s: cnt.s, nn: cnt.n, own: own, sp: Math.round((sp - 1) * 1000) / 10, tp: Math.round((tp - 1) * 1000) / 10,
+          text: '📜 真實紀錄：' + (r.strategies || []).join('、') + '過去 ' + N + ' 次（' + DJ.dates[65].slice(0, 7) + ' 起），照這檔停損 ' +
+            (Math.round((sp - 1) * 1000) / 10) + '%／目標 +' + (Math.round((tp - 1) * 1000) / 10) + '%，20 天內先到目標 ' + pc(cnt.t, N) +
+            '、先停損 ' + pc(cnt.s, N) + '、都沒到 ' + pc(cnt.n, N) + (M ? '；這檔自己 ' + M + ' 次：目標 ' + own.t + '、停損 ' + own.s + '、都沒到 ' + own.n : '；這檔自己還沒有紀錄') };
+      }
+      console.log('真實紀錄：' + plan.rows.filter((r) => r.record).length + ' 檔');
+    } catch (e) { console.error('真實紀錄計算失敗，略過：', e.message); }
     console.log('背景搭配：' + plan.rows.filter((r) => (r.res || []).some((x) => x.includes('回測勝率'))).length + ' 檔');
     console.log('多策略共振：' + plan.rows.filter((r) => r.star).length + ' 檔（強共振 ' + plan.rows.filter((r) => r.star === 2).length + ' 檔）');
   } catch (e) { console.error('共振標記失敗，略過：', e.message); }
