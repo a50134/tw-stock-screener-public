@@ -3,7 +3,7 @@
 資料：網頁資料 data.json（約 1 年半）；策略每天選到的股票由 research/strat_hits.js 算（網頁同一套條件）
 新想法（單獨勝率低、沒加入的）：
   SEPA 趨勢樣板突破、16 種型態的偏多 8 種、融資換手（融資 20 天減 5%＋法人買＋創 60 天新高）、
-  一年高點 5% 內＋外資買、投信一直買＋股價在投信成本附近、MACD 翻正＋布林開口＋站上上揚月線（2026-11-17）
+  一年高點 5% 內＋外資買、投信一直買＋股價在投信成本附近、MACD 翻正＋布林開口＋站上上揚月線（2026-11-17）、PEG < 0.75、短期反轉（大型股 5 日跌最多的 10%，2026-11-21）
 搭配＝新想法今天出現訊號，而且這檔近 5 個交易日內被某策略選到 → 隔天開盤買，抱 20 天，跌 8% 停損，扣成本 0.6%
 同一個搭配、同一檔 20 天內只算一次；至少 15 筆才列出
 用法：node research/strat_hits.js data.json hits.json && python research/combo_bt.py data.json hits.json
@@ -58,6 +58,28 @@ for k, v in hits.items():
         for i in ids:
             pick[k][i].add(di[day])
 
+QEND = {"Q1": "-05-15", "Q2": "-08-14", "Q3": "-11-14", "Q4": "-03-31"}  # 季報最晚公布日（Q4 是隔年）
+
+
+def ttm_eps(s, day):
+    """day 當天已公布的近 4 季 EPS 合計、與一年前的近 4 季合計"""
+    qs = []
+    for q in s.get("q") or []:
+        y, k = int(q["q"][:4]), q["q"][4:]
+        pub = ("%d" % (y + 1) if k == "Q4" else "%d" % y) + QEND[k]
+        if pub <= day and q.get("eps") is not None:
+            qs.append(q["eps"])
+    if len(qs) < 8:
+        return None, None
+    return sum(qs[-4:]), sum(qs[-8:-4])
+
+
+BIG = {x["id"] for _, x in sorted(((float(x["shares"]) * x["c"][-1], x) for x in S if not x["id"].startswith("00") and x.get("shares") and x["c"][-1]), key=lambda z: -z[0])[:50]}
+REV = {}  # 每 5 天：大型股 5 日跌幅最大的 10%
+for t in range(70, n - 2, 1):
+    L = sorted((s["c"][t] / s["c"][t - 5] - 1, s["id"]) for s in S if s["id"] in BIG and s["c"][t] and s["c"][t - 5])
+    for r, sid in L[:max(1, len(L) // 10)]:
+        REV.setdefault(sid, set()).add(t)
 IDEA = {}  # (想法, 股票) → 訊號日
 for s in S:
     sid, c, o, h, l, v = s["id"], s["c"], s["o"], s["h"], s["l"], s["v"]
@@ -94,6 +116,16 @@ for s in S:
                 sig.add("投信一直買＋股價在投信成本附近")
         if t in mb:
             sig.add("MACD 翻正＋布林開口＋站上上揚月線")
+        if t in REV.get(sid, ()):
+            sig.add("短期反轉：大型股 5 日跌最多的 10%")
+        if t % 5 == 0:
+            e1, e0 = ttm_eps(s, D[t])
+            if e1 and e0 and e0 > 0 and e1 > e0:
+                peg = (c[t] / e1) / ((e1 / e0 - 1) * 100)
+                if peg < 0.75:
+                    sig.add("PEG < 0.75（本益比÷EPS 年增率）")
+                if peg < 0.75 and c[t] > mc(60, t):
+                    sig.add("PEG < 0.75＋站上季線")
         for g in sig:
             IDEA.setdefault((g, sid), []).append(t)
 
