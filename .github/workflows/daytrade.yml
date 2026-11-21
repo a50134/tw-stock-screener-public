@@ -1,0 +1,52 @@
+name: 模擬當沖紀錄
+
+# 每個交易日收盤後：照固定規則重演今天的 5 分 K，記下假想的當沖進出場（不下單），結果只發 Discord、存私人專案
+on:
+  schedule:
+    - cron: '23 6 * * 1-5'   # 台灣 14:23（GitHub 排程常延遲；Yahoo 5 分 K 保留 60 天，晚一點跑也一樣）
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '指定日期（YYYY-MM-DD，空白＝今天）'
+        required: false
+        default: ''
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 取私人資料（模擬紀錄放在私人專案，不公開）
+        if: env.PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: a50134/tw-stock-screener
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: priv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: 併入私人資料
+        run: '[ -f priv/sop_config.json ] && python private_sync.py pull priv || echo "沒有私人資料"'
+      - run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
+      - name: 重演今天、記錄假想交易（明細不印在公開紀錄）
+        run: python daytrade_sim.py data.json ${{ inputs.date && format('--date {0}', inputs.date) || '' }}
+      - name: 發 Discord（只發給你，不發 LINE）
+        run: '[ -s report_daytrade.txt ] && python send_report.py report_daytrade.txt --discord-only || echo "今天沒有新的模擬紀錄"'
+      - name: 存回私人專案
+        if: hashFiles('priv/sop_config.json') != ''
+        run: |
+          python private_sync.py push priv
+          cd priv
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "更新模擬當沖紀錄" || exit 0
+          for i in 1 2 3; do git pull --rebase --autostash && git push && break || sleep 5; done
