@@ -338,6 +338,10 @@ def main():
             if dtext:
                 add(["report_discord.txt", "report_line.txt"], dtext)
                 log("好公司跌深抄底已加入報告")
+            drtext = crash.deep_rebound(ld("data.json"), reg)  # 大跌時的跌深反彈（站回 5 日線才買；2026-11-21 使用者同意）
+            if drtext:
+                add(["report_discord.txt", "report_line.txt"], drtext)
+                log("跌深反彈已加入報告")
         except Exception as e:
             log("大跌撿好股／跌深抄底失敗，略過：", e)
         try:  # 加碼計畫監控：等低點、看起漲訊號再加碼（只給自己）
@@ -449,6 +453,9 @@ def main():
             buy_now = [x.strip() for t_ in (locals().get("ctext") or "", locals().get("ltext") or "") for x in t_.split("\n")
                        if x.strip().startswith(("⏳", "🟢", "🟠", "🟡", "🔴", "👉", "📊")) and "歷史 9 次" not in x]
             notes = [x.split("（歷史")[0] for x in buy_now] + notes
+            rtx = [x.strip() for x in (locals().get("drtext") or "").split("\n") if x.strip()]
+            if rtx:  # 跌深反彈：標題＋今天站回 5 日線的（🟢）＋最多 3 檔還在等的（⏳），市場資訊可發 LINE
+                notes = [rtx[0]] + [x for x in rtx if x.startswith("・🟢")][:5] + [x for x in rtx if x.startswith("・⏳")][:3] + notes
             ftx = locals().get("ftext") or ""
             if ftx:  # 台幣：有訊號放最前面，沒訊號放後面
                 notes = ([ftx] + notes) if "訊號 " in ftx and "出現" in ftx else (notes + [ftx.split("（過去")[0]])
