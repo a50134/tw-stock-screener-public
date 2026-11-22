@@ -278,22 +278,31 @@ def time_study(by):
          "　從開盤價往下掛，當天成交機率：%s" % "、".join("低 %.1f%% → %.0f%%" % (k, p * 100) for k, p in fills)]
     top = max(dl, key=lambda x: x[1])
     L.append("　→ 最低點最常出現在 %s（%.0f%% 的日子）" % (top[0], top[1] * 100))
-    return L, (dl, fills)
+    return L, (dl, dh, fills)
 
 
 # ---------- 5. 適合你的做法 ----------
-def habit(best, wq, tdata, cyc, now):
+def habit(best, wq, tdata, cyc, now, D=None):
     L = []
+    c = [d[4] for d in D] if D else []
+    t = len(c) - 1
+    m20, m20p = (ma(c, t, 20), ma(c, t - 5, 20)) if t >= 30 else (None, None)
+    if m20 and c[t] < m20 and m20 < m20p:  # 還在跌：月線下彎、收盤在月線下
+        L.append("　⛔ 現在還在下跌（收盤 %s 在月線 %.1f 之下、月線往下）：先不要下單，等收盤站回月線再用下面的方法買；"
+                 "真的想先買，只買 1/3、掛低價等（不要市價追）" % (round(c[t], 2), m20))
     if best:
         k = best[0]
         L.append("　📌 預約單價位：%s；過去這樣做 %d 天內成交 %.0f%%、成交後 60 天賺錢 %.0f%%" % (
-            "掛低價等不划算，前一晚或 9 點前用預約單「開盤價（市價）」直接買第 1 批" if k == 0 else
+            "掛太低不容易成交、也沒有比較好，前一晚或 9 點前掛「前一天收盤價」的限價買單買第 1 批（不要用市價）" if k == 0 else
             "前一晚或 9 點前掛「今天收盤價低 %d%%」的限價買單，沒成交每天重掛，最多 %d 個交易日" % (k, WAIT),
             WAIT, best[2][1] * 100, best[2][2] * 100))
     if tdata:
-        dl, fills = tdata
+        dl, dh, fills = tdata
         early, first, last = dl[0][1] + dl[1][1], dl[0][1], dl[4][1]
-        if first >= 0.3 and last >= 0.2:
+        hi_open = dh[0][1]
+        if hi_open >= 0.5:
+            L.append("　📌 時間：開盤 15 分鐘常是當天最高點（%.0f%% 的日子），不要開盤用市價搶；限價單掛好等，或午休 12:00～13:30 再看" % (hi_open * 100))
+        elif first >= 0.3 and last >= 0.2:
             L.append("　📌 時間：最低點常在開盤 15 分鐘（%.0f%%）或收盤前半小時（%.0f%%）。9 點前掛好預約單，沒成交就 13:00 後再看一次" % (first * 100, last * 100))
         elif early >= 0.5:
             L.append("　📌 時間：最低點多在 10 點前（%.0f%%），9 點前掛好預約單最適合你；中午再看要不要改價" % (early * 100))
@@ -345,7 +354,7 @@ def run(s, prof=None):
         out += ["・幾點下單比較好（近 60 天 5 分 K）："] + tL
     import analysis
     cyc = analysis.is_cyc(prof) if prof else False
-    h = habit(best, wq, tdata, cyc, now)
+    h = habit(best, wq, tdata, cyc, now, D)
     if h:
         out += ["・依你的習慣（9 點前／午休／下班後看盤、常用預約單與智慧單、不太想停損）："] + h
     return "\n".join(out)
