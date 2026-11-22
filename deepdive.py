@@ -189,6 +189,9 @@ def entry_study(D):
     allday = list(range(60, n - WAIT - HOLD))
     L = []
     best = None
+    if len(similar) < 80:
+        L.append("　現在股價在季線%s %.0f%%，10 年只有 %d 天這麼%s（很少見，相似日子太少不另外算）" % (
+            "上" if now >= 0 else "下", abs(now) * 100, len(similar), "高" if now >= 0 else "低"))
     for name, days in (("跟現在位置相似的日子", similar), ("10 年所有日子", allday)):
         if len(days) < 80:
             continue
@@ -289,8 +292,10 @@ def habit(best, wq, tdata, cyc, now):
             WAIT, best[2][1] * 100, best[2][2] * 100))
     if tdata:
         dl, fills = tdata
-        early = dl[0][1] + dl[1][1]
-        if early >= 0.5:
+        early, first, last = dl[0][1] + dl[1][1], dl[0][1], dl[4][1]
+        if first >= 0.3 and last >= 0.2:
+            L.append("　📌 時間：最低點常在開盤 15 分鐘（%.0f%%）或收盤前半小時（%.0f%%）。9 點前掛好預約單，沒成交就 13:00 後再看一次" % (first * 100, last * 100))
+        elif early >= 0.5:
             L.append("　📌 時間：最低點多在 10 點前（%.0f%%），9 點前掛好預約單最適合你；中午再看要不要改價" % (early * 100))
         else:
             L.append("　📌 時間：最低點常在 10 點後（10 點前只佔 %.0f%%），可以午休 12:00～13:30 再用智慧單／觸價單買，不用急著開盤搶" % (early * 100))
