@@ -6,6 +6,7 @@ lookup.py - 查個股：輸入代號或名稱，馬上從 FinMind 抓資料分�
 你有持股的話，Discord 版會多一段「持股賣出提醒」（只發 Discord，不印在公開的執行紀錄）
 
 用法：python lookup.py 1605 台積電 2603      # 代號或名稱都可以，空白或逗號分隔
+      python lookup.py 1605 --deep          # 加深入分析（大事件反應、預約單掛多少、幾點下單、1 萬次模擬）
       python lookup.py 1605 --dry           # 只印在畫面，不發 Discord
       python lookup.py 1605 --no-bt         # 不做 5 年回測（比較快）
 結果：lookup.txt（公開版，不含持股）、Discord（含持股提醒）
@@ -174,9 +175,15 @@ def main():
                 L.append(pretrade.run(s["id"], s["name"], fetch_finmind.get))
             except Exception as e:
                 print("5 年回測失敗，略過：", type(e).__name__)
-        nl = news_lines(s)
+        nl = news_lines(s, 10 if "--deep" in sys.argv else 5)
         if nl:
             L.append("・最近新聞：\n" + "\n".join(nl))
+        if "--deep" in sys.argv:  # 深入分析：財報趨勢、大事件反應、預約單價位（真實紀錄＋1 萬次模擬）、幾點下單、適合你的做法
+            try:
+                import deepdive
+                L.append(deepdive.run(s, prof.get(s["id"])))
+            except Exception as e:
+                print("深入分析失敗，略過：", type(e).__name__)
         pub.append("\n".join(L))
         if s["id"] in H:  # 你的持股：加上賣出提醒（只發 Discord）
             lv, act, rs, tips, P = exits.check(s, data["dates"], H[s["id"]], prof.get(s["id"]))
