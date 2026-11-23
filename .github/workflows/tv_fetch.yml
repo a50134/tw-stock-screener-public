@@ -1,0 +1,36 @@
+name: 抓錢線百分百節目內容
+# 每天抓最近幾集的標題、簡介、字幕，存到 tv-notes 分支（Claude 讀來整理選股策略、回測）
+on:
+  schedule:
+    - cron: '37 15 * * 1-5'   # 台灣時間 23:37（節目播完後）
+  workflow_dispatch:
+    inputs:
+      days:
+        description: '抓最近幾天'
+        default: '3'
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q -U yt-dlp
+      - name: 取出已存的節目
+        run: |
+          git fetch -q --depth 1 origin tv-notes && git worktree add -q /tmp/notes FETCH_HEAD || { mkdir -p /tmp/notes; cd /tmp/notes; git init -q; git checkout -q -b tv-notes; }
+      - run: python research/tv_fetch.py /tmp/notes/tv "${{ inputs.days || '3' }}"
+      - name: 存回 tv-notes 分支
+        working-directory: /tmp/notes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "節目內容 $(date +%F)" || exit 0
+          git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:tv-notes
