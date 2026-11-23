@@ -49,24 +49,27 @@ def main():
         if vid in done:
             continue
         url = "https://www.youtube.com/watch?v=" + vid
+        m = re.search(r"(20\d{6})", e.get("title") or "")
+        d = m.group(1) if m else ""
+        rec = {"title": e.get("title"), "date": "%s-%s-%s" % (d[:4], d[4:6], d[6:]) if d else "", "url": url,
+               "duration": e.get("duration"), "desc": e.get("description") or "", "chapters": [], "subs": ""}
+        # 單支影片頁：YouTube 常擋 GitHub 的機器（要登入確認不是機器人），擋掉就只存搜尋頁的標題
         info = subprocess.run(["yt-dlp", "-J", "--skip-download", url], capture_output=True, text=True)
-        if info.returncode:
-            print("讀不到：", vid, info.stderr[-200:])
+        if not info.returncode:
+            j = json.loads(info.stdout)
+            u = j.get("upload_date") or d
+            rec.update(date="%s-%s-%s" % (u[:4], u[4:6], u[6:]), desc=j.get("description") or rec["desc"],
+                       chapters=[c.get("title") for c in j.get("chapters") or []])
+            for f in glob.glob(tmp + "/*"):
+                os.remove(f)
+            subprocess.run(["yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", "zh-Hant,zh-TW,zh-Hans,zh.*",
+                            "--sub-format", "vtt", "-o", tmp + "/%(id)s.%(ext)s", url], capture_output=True, text=True)
+            subs = sorted(glob.glob(tmp + "/*.vtt"), key=lambda p: ("Hant" not in p and "TW" not in p, p))
+            rec["subs"] = vtt_text(subs[0]) if subs else ""
+        if not rec["date"] or rec["date"].replace("-", "") < since:
             continue
-        j = json.loads(info.stdout)
-        if (j.get("upload_date") or "0") < since:
-            continue
-        for f in glob.glob(tmp + "/*"):
-            os.remove(f)
-        subprocess.run(["yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", "zh-Hant,zh-TW,zh-Hans,zh.*",
-                        "--sub-format", "vtt", "-o", tmp + "/%(id)s.%(ext)s", url], capture_output=True, text=True)
-        subs = sorted(glob.glob(tmp + "/*.vtt"), key=lambda p: ("Hant" not in p and "TW" not in p, p))
-        text = vtt_text(subs[0]) if subs else ""
-        d = j.get("upload_date") or ""
-        rec = {"title": j.get("title"), "date": "%s-%s-%s" % (d[:4], d[4:6], d[6:]), "url": url, "duration": j.get("duration"),
-               "desc": j.get("description") or "", "chapters": [c.get("title") for c in j.get("chapters") or []], "subs": text}
         json.dump(rec, open(os.path.join(OUT, "%s_%s.json" % (rec["date"], vid)), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        print("存好：", rec["date"], rec["title"][:50], "字幕 %d 字" % len(text))
+        print("存好：", rec["date"], rec["title"][:50], "字幕 %d 字" % len(rec["subs"]))
         n += 1
     print("新增 %d 集" % n)
 
