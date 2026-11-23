@@ -15,7 +15,7 @@ import sys
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "tv"
 DAYS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
-QUERY = "ytsearchdate25:錢線百分百 完整版"
+QUERY = "https://www.youtube.com/results?search_query=%E9%8C%A2%E7%B7%9A%E7%99%BE%E5%88%86%E7%99%BE+%E5%AE%8C%E6%95%B4%E7%89%88&sp=CAI%253D"  # 錢線百分百 完整版，依上傳日期排序
 
 
 def vtt_text(path):
@@ -34,7 +34,7 @@ def vtt_text(path):
 def main():
     os.makedirs(OUT, exist_ok=True)
     since = (dt.date.today() - dt.timedelta(days=DAYS)).strftime("%Y%m%d")
-    r = subprocess.run(["yt-dlp", "--flat-playlist", "-J", QUERY], capture_output=True, text=True)
+    r = subprocess.run(["yt-dlp", "--flat-playlist", "--playlist-end", "25", "-J", QUERY], capture_output=True, text=True)
     if r.returncode:
         print("搜尋失敗：", r.stderr[-500:])
         sys.exit(1)
