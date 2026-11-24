@@ -58,6 +58,7 @@ def vtt_text(path):
     return "".join(x if re.search(r"[，。！？]$", x) else x + "，" for x in out)
 
 
+KEEP_DAYS = 3  # 字幕全文保留天數（例行分析每天讀一次，3 天後刪掉）
 MAX_ASR = 5  # 每次最多語音辨識幾集（一集約 1 小時，辨識要 10～20 分鐘）
 _MODEL = []
 
@@ -87,6 +88,7 @@ def transcribe(url, tmp):
         except Exception:
             pass
         print("語音辨識完成：%d 字、%.0f 秒" % (len(text), time.time() - t0), flush=True)
+        os.remove(aud[0])  # 使用者要求：資料收集好就刪掉下載的檔案
         return text
     except Exception as ex:
         print("語音辨識失敗：", type(ex).__name__, str(ex)[:150], flush=True)
@@ -95,6 +97,16 @@ def transcribe(url, tmp):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    keep = (dt.date.today() - dt.timedelta(days=KEEP_DAYS)).isoformat()
+    done = set()
+    for p in glob.glob(os.path.join(OUT, "*_*.json")):
+        rec = json.load(open(p, encoding="utf-8"))
+        if rec.get("subs") and (rec.get("date") or "9") < keep:
+            # 使用者要求：資訊收集好（每天的例行分析已讀過）就刪掉下載的內容，只留標題、日期
+            rec["subs"], rec["purged"] = "", True
+            json.dump(rec, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        if rec.get("subs") or rec.get("purged"):
+            done.add(os.path.basename(p).split("_", 1)[1][:-5])  # 沒字幕的下次再試
     since = (dt.date.today() - dt.timedelta(days=DAYS)).strftime("%Y%m%d")
     items = []
     for show, q, key in SHOWS:
@@ -107,9 +119,8 @@ def main():
         print("%s：搜尋到 %d 支" % (show, len(got)))
         items += got
     if not items:
-        sys.exit(1)
-    done = {os.path.basename(p).split("_", 1)[1][:-5] for p in glob.glob(os.path.join(OUT, "*_*.json"))
-            if json.load(open(p, encoding="utf-8")).get("subs")}  # 沒字幕的下次再試
+        print("沒有搜尋到任何節目（YouTube 搜尋頁可能暫時失敗），只做清除")
+        return
     print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
     blocked, asr_n = 0, 0
     tmp = "/tmp/tvsub"
