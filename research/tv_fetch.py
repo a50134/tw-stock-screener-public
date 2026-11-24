@@ -67,9 +67,9 @@ def transcribe(url, tmp):
     """下載聲音 → faster-whisper 轉文字 → 轉成繁體；失敗回傳空字串"""
     for f in glob.glob(tmp + "/a.*"):
         os.remove(f)
-    r = subprocess.run(YT + ["-f", "bestaudio", "-x", "--audio-format", "mp3", "--audio-quality", "64K",
-                             "-o", tmp + "/a.%(ext)s", url], capture_output=True, text=True)
-    aud = glob.glob(tmp + "/a.mp3")
+    # 直接下載原始聲音檔（不轉檔，GitHub 的機器沒有 ffmpeg；faster-whisper 自己會解碼）
+    r = subprocess.run(YT + ["-f", "bestaudio[ext=m4a]/bestaudio", "-o", tmp + "/a.%(ext)s", url], capture_output=True, text=True)
+    aud = [f for f in glob.glob(tmp + "/a.*") if not f.endswith(".part")]
     if r.returncode or not aud:
         err = [x for x in r.stderr.splitlines() if "ERROR" in x]
         print("聲音下載失敗：", (err[-1] if err else r.stderr[-200:])[:200], flush=True)
