@@ -137,7 +137,7 @@ def main():
         print("沒有搜尋到任何節目（YouTube 搜尋頁可能暫時失敗），只做清除")
         return
     print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
-    blocked, asr_n = 0, 0
+    blocked, asr_n, streak = 0, 0, 0
     tmp = "/tmp/tvsub"
     os.makedirs(tmp, exist_ok=True)
     n = 0
@@ -156,9 +156,15 @@ def main():
         info = subprocess.run(YT + ["-J", "--skip-download", url], capture_output=True, text=True)
         if info.returncode:
             blocked += 1
+            streak += 1
             err = [x for x in info.stderr.splitlines() if "ERROR" in x]
             print("讀不到：", e["show"], vid, (err[-1] if err else info.stderr[-200:])[:200], flush=True)
+            if streak >= 2:  # 連續被擋：先停，避免一直問 YouTube 讓帳號被標成機器人
+                print("連續被 YouTube 擋，這次先停（下次排程再試）")
+                break
+            continue  # 被擋就不存（不要蓋掉之前的紀錄）
         else:
+            streak = 0
             j = json.loads(info.stdout)
             u = j.get("upload_date") or d
             rec.update(date="%s-%s-%s" % (u[:4], u[4:6], u[6:]), desc=j.get("description") or rec["desc"],
