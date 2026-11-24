@@ -63,6 +63,21 @@ MAX_ASR = 5  # 每次最多語音辨識幾集（一集約 1 小時，辨識要 1
 _MODEL = []
 
 
+def decode16k(path):
+    """聲音檔 → 16kHz 單聲道數字陣列（自己解碼；新版 av 套件拿掉了 faster-whisper 內建解碼用的參數）"""
+    import av
+    import numpy as np
+    out = []
+    rs = av.AudioResampler(format="s16", layout="mono", rate=16000)
+    with av.open(path) as c:
+        for fr in c.decode(audio=0):
+            for f in rs.resample(fr):
+                out.append(f.to_ndarray().reshape(-1))
+        for f in rs.resample(None):
+            out.append(f.to_ndarray().reshape(-1))
+    return (np.concatenate(out).astype(np.float32) / 32768.0) if out else np.zeros(0, np.float32)
+
+
 def transcribe(url, tmp):
     """下載聲音 → faster-whisper 轉文字 → 轉成繁體；失敗回傳空字串"""
     for f in glob.glob(tmp + "/a.*"):
@@ -79,7 +94,7 @@ def transcribe(url, tmp):
         if not _MODEL:
             _MODEL.append(WhisperModel("small", device="cpu", compute_type="int8"))
         t0 = time.time()
-        segs, _ = _MODEL[0].transcribe(aud[0], language="zh", vad_filter=True, beam_size=1,
+        segs, _ = _MODEL[0].transcribe(decode16k(aud[0]), language="zh", vad_filter=True, beam_size=1,
                                        initial_prompt="以下是台灣的股市財經節目，使用繁體中文。")
         text = "，".join(x.text.strip() for x in segs if x.text.strip())
         try:
