@@ -12,18 +12,19 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "tv"
 DAYS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 # YouTube 登入資料（cookies.txt，存在 GitHub Secrets 的 YT_COOKIES）：有的話用備用帳號身分看影片，才抓得到字幕
 CK = os.environ.get("YT_COOKIES_FILE") or ""
-YT = ["yt-dlp", "--sleep-requests", "1"] + (["--cookies", CK] if CK and os.path.getsize(CK) > 100 else [])
+YT = ["yt-dlp", "--sleep-requests", "3", "--sleep-subtitles", "5"] + (["--cookies", CK] if CK and os.path.getsize(CK) > 100 else [])
 # 追蹤的節目：（名稱、YouTube 搜尋字、標題一定要有的字）；搜尋結果依上傳日期排序，只留 20 分鐘以上的完整集數
 SHOWS = [
     ("錢線百分百", "錢線百分百 完整版", "錢線百分百"),
     ("理財達人秀", "理財達人秀 李兆華", "理財達人秀"),   # 2026-11-24 使用者同意加
     ("財經皓角", "游庭皓的財經皓角", "財經皓角"),       # 2026-11-24 使用者同意加
-    ("財經週六趴", "財經週六趴", "週六趴"),             # 2026-11-24 使用者要求加（週末節目）
+    ("財經週末趴", "民視財經週末趴", "週末趴"),         # 2026-11-24 使用者要求加（週六 22:00，民視）
     ("財經週日趴", "財經週日趴", "週日趴"),
 ]
 
@@ -85,6 +86,9 @@ def main():
             continue
         url = "https://www.youtube.com/watch?v=" + vid
         d = title_date(e.get("title"))
+        if d and d < since:  # 標題就看得出太舊：不去問 YouTube（問太多次會被當機器人擋）
+            continue
+        time.sleep(4)
         rec = {"show": e["show"], "title": e.get("title"), "date": "%s-%s-%s" % (d[:4], d[4:6], d[6:]) if d else "", "url": url,
                "duration": e.get("duration"), "desc": e.get("description") or "", "chapters": [], "subs": ""}
         # 單支影片頁：YouTube 常擋 GitHub 的機器（要登入確認不是機器人），擋掉就只存搜尋頁的標題
