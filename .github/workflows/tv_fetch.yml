@@ -43,5 +43,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "節目內容 $(date +%F)" || exit 0
-          git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:tv-notes
+          git diff --cached --quiet && exit 0
+          # 每次只留一個版本（舊的字幕全文不留在紀錄裡）
+          git checkout -q --orphan fresh && git commit -q -m "節目內容 $(date +%F)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:tv-notes
