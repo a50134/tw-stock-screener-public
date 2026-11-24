@@ -95,6 +95,8 @@ def main():
         info = subprocess.run(YT + ["-J", "--skip-download", url], capture_output=True, text=True)
         if info.returncode:
             blocked += 1
+            err = [x for x in info.stderr.splitlines() if "ERROR" in x]
+            print("讀不到：", e["show"], vid, (err[-1] if err else info.stderr[-200:])[:200], flush=True)
         else:
             j = json.loads(info.stdout)
             u = j.get("upload_date") or d
