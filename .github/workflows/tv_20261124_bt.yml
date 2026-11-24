@@ -1,0 +1,17 @@
+name: 錢線 11/23 字幕版回測（落底訊號、倒金字塔、外資買超）
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
+      - run: python research/tv_20261124_bt.py data.json
