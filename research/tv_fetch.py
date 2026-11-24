@@ -1,5 +1,5 @@
 """
-tv_fetch.py - 抓「錢線百分百」最近幾集的 YouTube 標題、簡介、自動字幕（給 Claude 讀，整理節目提到的選股策略再回測）
+tv_fetch.py - 抓財經節目（錢線百分百、理財達人秀、財經皓角）最近幾集的 YouTube 標題、簡介、自動字幕（給 Claude 讀，整理節目提到的選股策略再回測）
 
 用法：python research/tv_fetch.py 輸出資料夾 [天數=3]
 結果：輸出資料夾/日期_影片代號.json（title、date、url、desc、subs 純文字），已經抓過的會跳過
@@ -18,7 +18,30 @@ DAYS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 # YouTube 登入資料（cookies.txt，存在 GitHub Secrets 的 YT_COOKIES）：有的話用備用帳號身分看影片，才抓得到字幕
 CK = os.environ.get("YT_COOKIES_FILE") or ""
 YT = ["yt-dlp", "--sleep-requests", "1"] + (["--cookies", CK] if CK and os.path.getsize(CK) > 100 else [])
-QUERY = "https://www.youtube.com/results?search_query=%E9%8C%A2%E7%B7%9A%E7%99%BE%E5%88%86%E7%99%BE+%E5%AE%8C%E6%95%B4%E7%89%88&sp=CAI%253D"  # 錢線百分百 完整版，依上傳日期排序
+# 追蹤的節目：（名稱、YouTube 搜尋字、標題一定要有的字）；搜尋結果依上傳日期排序，只留 20 分鐘以上的完整集數
+SHOWS = [
+    ("錢線百分百", "錢線百分百 完整版", "錢線百分百"),
+    ("理財達人秀", "理財達人秀 李兆華", "理財達人秀"),   # 2026-11-24 使用者同意加
+    ("財經皓角", "游庭皓的財經皓角", "財經皓角"),       # 2026-11-24 使用者同意加
+    ("財經週六趴", "財經週六趴", "週六趴"),             # 2026-11-24 使用者要求加（週末節目）
+    ("財經週日趴", "財經週日趴", "週日趴"),
+]
+
+
+def search_url(q):
+    import urllib.parse
+    return "https://www.youtube.com/results?search_query=%s&sp=CAI%%253D" % urllib.parse.quote_plus(q)
+
+
+def title_date(t):
+    """標題裡的日期：20261123、2026/11/23、2026.11.23、2026-11-23"""
+    m = re.search(r"(20\d{2})[./-]?(\d{1,2})[./-]?(\d{1,2})", t or "")
+    if not m:
+        return ""
+    y, mo, d = m.groups()
+    if not (1 <= int(mo) <= 12 and 1 <= int(d) <= 31):
+        return ""
+    return "%s%02d%02d" % (y, int(mo), int(d))
 
 
 def vtt_text(path):
@@ -37,12 +60,18 @@ def vtt_text(path):
 def main():
     os.makedirs(OUT, exist_ok=True)
     since = (dt.date.today() - dt.timedelta(days=DAYS)).strftime("%Y%m%d")
-    r = subprocess.run(YT + ["--flat-playlist", "--playlist-end", "25", "-J", QUERY], capture_output=True, text=True)
-    if r.returncode:
-        print("搜尋失敗：", r.stderr[-500:])
+    items = []
+    for show, q, key in SHOWS:
+        r = subprocess.run(YT + ["--flat-playlist", "--playlist-end", "25", "-J", search_url(q)], capture_output=True, text=True)
+        if r.returncode:
+            print("搜尋失敗：", show, r.stderr[-300:])
+            continue
+        got = [dict(e, show=show) for e in json.loads(r.stdout).get("entries") or []
+               if key in (e.get("title") or "") and (e.get("duration") or 9999) >= 1200]
+        print("%s：搜尋到 %d 支" % (show, len(got)))
+        items += got
+    if not items:
         sys.exit(1)
-    items = [e for e in json.loads(r.stdout).get("entries") or [] if "錢線百分百" in (e.get("title") or "")]
-    print("搜尋到 %d 支" % len(items))
     done = {os.path.basename(p).split("_", 1)[1][:-5] for p in glob.glob(os.path.join(OUT, "*_*.json"))
             if json.load(open(p, encoding="utf-8")).get("subs")}  # 沒字幕的下次再試
     print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
@@ -55,9 +84,8 @@ def main():
         if vid in done:
             continue
         url = "https://www.youtube.com/watch?v=" + vid
-        m = re.search(r"(20\d{6})", e.get("title") or "")
-        d = m.group(1) if m else ""
-        rec = {"title": e.get("title"), "date": "%s-%s-%s" % (d[:4], d[4:6], d[6:]) if d else "", "url": url,
+        d = title_date(e.get("title"))
+        rec = {"show": e["show"], "title": e.get("title"), "date": "%s-%s-%s" % (d[:4], d[4:6], d[6:]) if d else "", "url": url,
                "duration": e.get("duration"), "desc": e.get("description") or "", "chapters": [], "subs": ""}
         # 單支影片頁：YouTube 常擋 GitHub 的機器（要登入確認不是機器人），擋掉就只存搜尋頁的標題
         info = subprocess.run(YT + ["-J", "--skip-download", url], capture_output=True, text=True)
