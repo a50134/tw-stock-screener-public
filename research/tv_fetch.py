@@ -58,6 +58,41 @@ def vtt_text(path):
     return "".join(x if re.search(r"[，。！？]$", x) else x + "，" for x in out)
 
 
+MAX_ASR = 5  # 每次最多語音辨識幾集（一集約 1 小時，辨識要 10～20 分鐘）
+_MODEL = []
+
+
+def transcribe(url, tmp):
+    """下載聲音 → faster-whisper 轉文字 → 轉成繁體；失敗回傳空字串"""
+    for f in glob.glob(tmp + "/a.*"):
+        os.remove(f)
+    r = subprocess.run(YT + ["-f", "bestaudio", "-x", "--audio-format", "mp3", "--audio-quality", "64K",
+                             "-o", tmp + "/a.%(ext)s", url], capture_output=True, text=True)
+    aud = glob.glob(tmp + "/a.mp3")
+    if r.returncode or not aud:
+        err = [x for x in r.stderr.splitlines() if "ERROR" in x]
+        print("聲音下載失敗：", (err[-1] if err else r.stderr[-200:])[:200], flush=True)
+        return ""
+    try:
+        from faster_whisper import WhisperModel
+        if not _MODEL:
+            _MODEL.append(WhisperModel("small", device="cpu", compute_type="int8"))
+        t0 = time.time()
+        segs, _ = _MODEL[0].transcribe(aud[0], language="zh", vad_filter=True, beam_size=1,
+                                       initial_prompt="以下是台灣的股市財經節目，使用繁體中文。")
+        text = "，".join(x.text.strip() for x in segs if x.text.strip())
+        try:
+            import opencc
+            text = opencc.OpenCC("s2twp").convert(text)
+        except Exception:
+            pass
+        print("語音辨識完成：%d 字、%.0f 秒" % (len(text), time.time() - t0), flush=True)
+        return text
+    except Exception as ex:
+        print("語音辨識失敗：", type(ex).__name__, str(ex)[:150], flush=True)
+        return ""
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     since = (dt.date.today() - dt.timedelta(days=DAYS)).strftime("%Y%m%d")
@@ -68,7 +103,7 @@ def main():
             print("搜尋失敗：", show, r.stderr[-300:])
             continue
         got = [dict(e, show=show) for e in json.loads(r.stdout).get("entries") or []
-               if key in (e.get("title") or "") and (e.get("duration") or 9999) >= 1200]
+               if len(e.get("id") or "") == 11 and key in (e.get("title") or "") and (e.get("duration") or 9999) >= 1200]  # 只要影片（頻道、播放清單也會出現在搜尋結果）
         print("%s：搜尋到 %d 支" % (show, len(got)))
         items += got
     if not items:
@@ -76,7 +111,7 @@ def main():
     done = {os.path.basename(p).split("_", 1)[1][:-5] for p in glob.glob(os.path.join(OUT, "*_*.json"))
             if json.load(open(p, encoding="utf-8")).get("subs")}  # 沒字幕的下次再試
     print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
-    blocked = 0
+    blocked, asr_n = 0, 0
     tmp = "/tmp/tvsub"
     os.makedirs(tmp, exist_ok=True)
     n = 0
@@ -108,12 +143,17 @@ def main():
                             "--sub-format", "vtt", "-o", tmp + "/%(id)s.%(ext)s", url], capture_output=True, text=True)
             subs = sorted(glob.glob(tmp + "/*.vtt"), key=lambda p: ("Hant" not in p and "TW" not in p, p))
             rec["subs"] = vtt_text(subs[0]) if subs else ""
+            if not rec["subs"] and asr_n < MAX_ASR and rec["date"].replace("-", "") >= since:
+                # 有些頻道（理財達人秀、週日趴）沒有字幕：下載聲音，用語音辨識（Whisper）轉成文字
+                asr_n += 1
+                rec["subs"] = transcribe(url, tmp)
+                rec["asr"] = bool(rec["subs"])
         if not rec["date"] or rec["date"].replace("-", "") < since:
             continue
         json.dump(rec, open(os.path.join(OUT, "%s_%s.json" % (rec["date"], vid)), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         print("存好：", rec["date"], rec["title"][:50], "字幕 %d 字" % len(rec["subs"]))
         n += 1
-    print("新增 %d 集；被 YouTube 擋 %d 次" % (n, blocked))
+    print("新增 %d 集；被 YouTube 擋 %d 次；語音辨識 %d 集" % (n, blocked, asr_n))
     if blocked and len(YT) > 3:
         print("⚠️ 有登入資料還是被擋：登入資料可能過期了，請重新匯出 cookies 存到 YT_COOKIES")
 

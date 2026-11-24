@@ -15,7 +15,7 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 180
     env:
       TZ: Asia/Taipei
     steps:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -q -U "yt-dlp[default]"
+      - run: pip install -q -U "yt-dlp[default]" faster-whisper opencc-python-reimplemented   # 沒字幕的節目用語音辨識
       - uses: denoland/setup-deno@v2   # yt-dlp 看 YouTube 需要 JavaScript 執行環境
         with:
           deno-version: v2.x
