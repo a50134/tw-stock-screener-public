@@ -175,6 +175,11 @@ def main():
                 L.append(pretrade.run(s["id"], s["name"], fetch_finmind.get))
             except Exception as e:
                 print("5 年回測失敗，略過：", type(e).__name__)
+        try:  # 情境機率：歷史上跟現在很像的日子，隔天／20 天怎麼走（2026-11-25 使用者要求判斷要有數字）
+            import odds
+            L.append(odds.run(dict(s, dates=data["dates"]), None))
+        except Exception as e:
+            print("情境機率失敗，略過：", type(e).__name__)
         nl = news_lines(s, 10 if "--deep" in sys.argv else 5)
         if nl:
             L.append("・最近新聞：\n" + "\n".join(nl))
@@ -199,6 +204,13 @@ def main():
             print("下單前檢查表失敗，略過：", type(e).__name__)
         priv.append("\n".join(L))
     head = "🔍 查個股（%s 收盤資料）" % data["asOf"]
+    try:  # 前一晚美股、台指期夜盤、美股期貨、政策新聞（2026-11-25：只看前一天收盤會漏掉隔天開盤的大方向）
+        import premarket
+        pm, _ = premarket.overview()
+        if pm:
+            head += "\n\n" + pm.replace("🌙 開盤前觀察", "🌙 大盤氣氛（美股、台指期夜盤）")
+    except Exception as e:
+        print("美股／夜盤資料失敗，略過：", type(e).__name__)
     tail = "依 FinMind 公開資料與固定規則整理，不是投資建議。"
     pub += us_txt
     priv += us_txt
