@@ -42,8 +42,12 @@ def build(plan, data=None, profiles=None, cycle="", top_ok=8, top_wait=5, top_de
     if rest:
         L += ["", "⚪ 其他 %d 檔：分數較低，先不建議（%s）" % (len(rest), "、".join(r["name"] for r in rest[:12]) + ("…" if len(rest) > 12 else ""))]
     allh = [r for r in plan.get("rows", []) if r.get("state") == "hold"]
-    hold = [r for r in allh if not str(r.get("hold_why", "")).startswith("循環股")]
+    drop = [r for r in allh if str(r.get("hold_why", "")).startswith("大盤急跌")]
+    hold = [r for r in allh if not str(r.get("hold_why", "")).startswith(("循環股", "大盤急跌"))]
     cyc = [r for r in allh if str(r.get("hold_why", "")).startswith("循環股")]
+    if drop:
+        L += ["", "⚪ %s：今晚名單 %d 檔先不買，0050 5 天跌幅回到 3%% 以內、或跌深反彈訊號（站回 5 日線）出現再說（%s）" % (
+            drop[0]["hold_why"], len(drop), "、".join(r["name"] for r in drop[:10]) + ("…" if len(drop) > 10 else ""))]
     if hold:
         L += ["", "⚪ 風險偏高先觀望（%s）：只因量價突破／穩健動能入選的 %d 檔先不追（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:10]) + ("…" if len(hold) > 10 else ""))]
     if cyc:

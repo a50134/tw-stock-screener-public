@@ -373,6 +373,32 @@ def guard_breakout(plan, weak, data=None):
     return n
 
 
+DROP5 = -0.03  # 0050 近 5 天跌幅門檻
+
+
+def drop5(data):
+    """0050 近 5 個交易日漲跌幅（data.json）；沒有資料回傳 None"""
+    s = next((x for x in (data or {}).get("stocks", []) if x["id"] == "0050"), None)
+    c = [x for x in (s or {}).get("c") or [] if x]
+    return c[-1] / c[-6] - 1 if len(c) >= 6 else None
+
+
+def guard_drop(plan, data):
+    """大盤急跌中（0050 近 5 天跌 3% 以上）：今晚名單全部改成先觀望，等大盤止穩。回傳 (改了幾檔, 5 天漲跌幅)
+    2026-11-25 使用者同意加入。回測（research/odds_bt.py 同一批策略紀錄）：這種時候還在用的策略選到的股票，
+    隔天開盤買、抱 20 天，138 筆勝率 21%、平均 −4.5%（其他時候 42%、+3.6%）；集中在 2026-10 那次，9 次急跌 5 次偏差"""
+    r = drop5(data)
+    if r is None or r > DROP5:
+        return 0, r
+    why = "大盤急跌：0050 近 5 天跌 %.1f%%，急跌當下照名單買勝率只有兩成，等止穩再買" % (-r * 100)
+    n = 0
+    for x in plan.get("rows", []):
+        if x.get("state") != "hold" and not str(x.get("id", "")).startswith("00"):  # ETF（含債券）不在回測範圍，照常
+            x["state"], x["hold_why"] = "hold", why
+            n += 1
+    return n, r
+
+
 def guard_cycle(plan, data):
     """循環股已在近幾年平均高點附近：改成先觀望（低點買、高點賣，不追高）。回傳改了幾檔"""
     by = {x["id"]: x for x in data.get("stocks", [])}

@@ -222,9 +222,11 @@ def main():
                 dj = json.load(open(os.path.join(DIR, "data.json"), encoding="utf-8"))
                 n = analysis.guard_breakout(P, weak, dj)  # 只因跌破季線偏弱時，權值股（市值前 50）照常推薦
                 nc = analysis.guard_cycle(P, dj)  # 循環股在平均高點附近
-                if n or nc:
+                nd, r5 = analysis.guard_drop(P, dj)  # 大盤急跌中（0050 5 天跌 3% 以上）：全部等止穩
+                if n or nc or nd:
                     json.dump(P, open(pp, "w", encoding="utf-8"), ensure_ascii=False)
-                log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔（權值股照常）；循環股在高檔改先觀望 %d 檔" % (weak or "不弱", n, nc))
+                log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔（權值股照常）；循環股在高檔改先觀望 %d 檔；0050 5 天 %s，急跌改先觀望 %d 檔" % (
+                    weak or "不弱", n, nc, "%+.1f%%" % (r5 * 100) if r5 is not None else "—", nd))
         except Exception as e:
             log("大盤偏弱檢查失敗，略過：", e)
         PRIV = "report_line_private.txt"  # 只給自己（發 Discord，不佔 LINE 額度）：持股、買賣紀錄；群發的 report_line.txt 不放持股
@@ -444,9 +446,12 @@ def main():
             import detail_img
             P = ld("sop_plan.json", {})
             allh = [r for r in P.get("rows", []) if r.get("state") == "hold"]
-            hold = [r for r in allh if not str(r.get("hold_why", "")).startswith("循環股")]
+            drop_h = [r for r in allh if str(r.get("hold_why", "")).startswith("大盤急跌")]
+            hold = [r for r in allh if not str(r.get("hold_why", "")).startswith(("循環股", "大盤急跌"))]
             cyc_h = [r for r in allh if str(r.get("hold_why", "")).startswith("循環股")]
             notes = ["風險偏高（%s）：只因量價突破／穩健動能入選的 %d 檔先觀望（%s）" % (hold[0].get("hold_why", ""), len(hold), "、".join(r["name"] for r in hold[:12]))] if hold else []
+            if drop_h:
+                notes.insert(0, "%s：今晚名單 %d 檔都先不買（%s）" % (drop_h[0]["hold_why"], len(drop_h), "、".join(r["name"] for r in drop_h[:12])))
             if cyc_h:
                 notes.append("循環股在高檔先觀望（已到近 5 年平均高點附近）：%s" % "、".join(r["name"] for r in cyc_h[:12]))
             # 國安基金買點、0050 正2：什麼時候買、多少錢（2026-11-13 使用者要 LINE 也看得到）
