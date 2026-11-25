@@ -29,6 +29,21 @@ SHOWS = [
 ]
 
 
+def cookie_check(path):
+    """只看格式與 cookie 名稱（不印出內容），用來判斷登入資料有沒有貼對"""
+    lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+    rows = [x.split("\t") for x in lines if x.strip() and not x.startswith("#")]
+    ok = [r for r in rows if len(r) >= 7]
+    yt = [r for r in ok if "youtube.com" in r[0]]
+    names = {r[5] for r in yt}
+    need = ["SID", "__Secure-3PSID", "LOGIN_INFO", "SAPISID"]
+    now = time.time()
+    expired = sum(1 for r in yt if r[4].isdigit() and 0 < int(r[4]) < now)
+    head = "Netscape 格式" if lines and "Netscape" in lines[0] else "第一行不是 Netscape 格式（可能貼錯檔案或格式）"
+    return "%s；共 %d 行、正確格式 %d 行、youtube.com %d 個、已過期 %d 個；登入用的 cookie：%s" % (
+        head, len(lines), len(ok), len(yt), expired, "、".join("%s %s" % (n, "有" if n in names else "沒有") for n in need))
+
+
 def search_url(q):
     import urllib.parse
     return "https://www.youtube.com/results?search_query=%s&sp=CAI%%253D" % urllib.parse.quote_plus(q)
@@ -137,6 +152,8 @@ def main():
         print("沒有搜尋到任何節目（YouTube 搜尋頁可能暫時失敗），只做清除")
         return
     print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
+    if len(YT) > 3:
+        print("登入資料檢查：", cookie_check(CK))
     blocked, asr_n, streak = 0, 0, 0
     tmp = "/tmp/tvsub"
     os.makedirs(tmp, exist_ok=True)
