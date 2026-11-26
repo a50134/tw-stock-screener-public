@@ -18,13 +18,15 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else "tv"
 DAYS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 # YouTube 登入資料（cookies.txt，存在 GitHub Secrets 的 YT_COOKIES）：有的話用備用帳號身分看影片，才抓得到字幕
 CK = os.environ.get("YT_COOKIES_FILE") or ""
-YT = ["yt-dlp", "--sleep-requests", "3", "--sleep-subtitles", "5"] + (["--cookies", CK] if CK and os.path.getsize(CK) > 100 else [])
+HAS_CK = bool(CK and os.path.exists(CK) and os.path.getsize(CK) > 100)
+YT = ["yt-dlp", "--sleep-requests", "3", "--sleep-subtitles", "5"] + (["--cookies", CK] if HAS_CK else [])
 # 追蹤的節目：（名稱、YouTube 搜尋字、標題一定要有的字）；搜尋結果依上傳日期排序，只留 20 分鐘以上的完整集數
 SHOWS = [
     ("錢線百分百", "錢線百分百 完整版", "錢線百分百"),
     ("理財達人秀", "理財達人秀 李兆華", "理財達人秀"),   # 2026-11-24 使用者同意加
     ("財經皓角", "游庭皓的財經皓角", "財經皓角"),       # 2026-11-24 使用者同意加
     ("財經週末趴", "民視財經週末趴", "週末趴"),         # 2026-11-24 使用者要求加（週六 22:00，民視）
+    ("財經週末趴", "財經宜 週末趴", "週末趴"),          # 同一個節目換搜尋字（YouTube 搜尋結果每次不一樣）
     ("財經週日趴", "財經週日趴", "週日趴"),
 ]
 
@@ -148,11 +150,20 @@ def main():
                if len(e.get("id") or "") == 11 and key in (e.get("title") or "") and (e.get("duration") or 9999) >= 1200]  # 只要影片（頻道、播放清單也會出現在搜尋結果）
         print("%s：搜尋到 %d 支" % (show, len(got)))
         items += got
+    # 之前存過、但還沒有字幕的集數（例如被擋或語音辨識沒輪到）：不管這次搜尋有沒有出現都重試
+    for p in glob.glob(os.path.join(OUT, "*_*.json")):
+        rec = json.load(open(p, encoding="utf-8"))
+        vid = os.path.basename(p).split("_", 1)[1][:-5]
+        if not rec.get("subs") and not rec.get("purged") and (rec.get("date") or "").replace("-", "") >= since:
+            items.append({"id": vid, "title": rec.get("title"), "show": rec.get("show"), "duration": rec.get("duration"),
+                          "description": rec.get("desc")})
+    seen = set()
+    items = [e for e in items if not (e["id"] in seen or seen.add(e["id"]))]  # 同一支影片只處理一次
     if not items:
         print("沒有搜尋到任何節目（YouTube 搜尋頁可能暫時失敗），只做清除")
         return
-    print("登入資料：", "有" if len(YT) > 3 else "沒有（只能抓標題）")
-    if len(YT) > 3:
+    print("登入資料：", "有" if HAS_CK else "沒有（只能抓標題）")
+    if HAS_CK:
         print("登入資料檢查：", cookie_check(CK))
     blocked, asr_n, streak = 0, 0, 0
     tmp = "/tmp/tvsub"
@@ -203,7 +214,7 @@ def main():
         print("存好：", rec["date"], rec["title"][:50], "字幕 %d 字" % len(rec["subs"]))
         n += 1
     print("新增 %d 集；被 YouTube 擋 %d 次；語音辨識 %d 集" % (n, blocked, asr_n))
-    if blocked and len(YT) > 3:
+    if blocked and HAS_CK:
         print("⚠️ 有登入資料還是被擋：登入資料可能過期了，請重新匯出 cookies 存到 YT_COOKIES")
 
 
