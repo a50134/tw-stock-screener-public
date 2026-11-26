@@ -9,6 +9,7 @@ jobs:
     timeout-minutes: 60
     env:
       PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
     steps:
       - uses: actions/checkout@v4

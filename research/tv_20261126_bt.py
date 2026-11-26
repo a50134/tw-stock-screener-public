@@ -70,8 +70,11 @@ def part_a(TW):
 def part_b(TW):
     print("\n【B】永年的止跌訊號（加權指數從 60 日高點跌 15% 以上後 20 天內）")
     fetch_finmind.TOKEN = (os.environ.get("FINMIND_TOKEN") or "").strip()
-    inst = fetch_finmind.get("TaiwanStockTotalInstitutionalInvestors", "", "2005-01-01", wait=True) or []
-    mg = fetch_finmind.get("TaiwanStockTotalMarginPurchaseShortSale", "", "2005-01-01", wait=True) or []
+    inst = fetch_finmind.get("TaiwanStockTotalInstitutionalInvestors", "", "2005-01-01", wait=False) or []
+    mg = fetch_finmind.get("TaiwanStockTotalMarginPurchaseShortSale", "", "2005-01-01", wait=False) or []
+    if not inst or not mg:
+        print("　FinMind 這小時的額度用完（或抓不到），B 先跳過，之後再跑")
+        return
     if inst:
         print("　法人資料欄位：", sorted(inst[0].keys()), sorted({r.get("name") for r in inst})[:8])
     if mg:
@@ -202,10 +205,10 @@ def main(path):
     TW = {r[0]: (r[1], r[2], r[3], r[4]) for r in rows if r[0] >= "2000-01-01" and r[4]}
     print("加權指數 %d 天" % len(TW))
     part_a(TW)
-    part_b(TW)
     d = json.load(open(path, encoding="utf-8"))
     part_cd(d)
     part_ef(d)
+    part_b(TW)  # 要 FinMind 額度，放最後
     print("\n注意：E、F 只測現在還是大型股的公司（倒掉的沒算），結果偏樂觀；C、D 只有約 1.5 年資料。")
 
 
