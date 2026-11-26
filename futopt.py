@@ -30,6 +30,45 @@ def foreign_net(rows):
     return net
 
 
+def taifex_fut(start, cid="TXF"):
+    """期交所「三大法人－區分各期貨契約」（每月一段 CSV）→ {日期: 外資淨未平倉口數}
+    2026-11-26 加：FinMind 每小時有請求上限，抓不到時直接從期交所抓"""
+    out = {}
+    d = start.replace(day=1)
+    first = True
+    while d <= dt.date.today():
+        e = min((d.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1), dt.date.today())
+        body = ("queryStartDate=%s&queryEndDate=%s&commodityId=%s" % (d.strftime("%Y/%m/%d"), e.strftime("%Y/%m/%d"), cid)).encode()
+        for k in range(2):
+            try:
+                req = urllib.request.Request("https://www.taifex.com.tw/cht/3/futContractsDateDown", data=body,
+                                             headers=dict(UA, **{"Content-Type": "application/x-www-form-urlencoded"}))
+                with urllib.request.urlopen(req, timeout=40) as r:
+                    rows = list(csv.reader(io.StringIO(r.read().decode("big5", "replace"))))
+                head = [x.strip() for x in rows[0]] if rows else []
+                if first:
+                    print("期交所期貨法人欄位：", head[:15], flush=True)
+                    first = False
+                iw = next((i for i, x in enumerate(head) if "身份" in x), None)
+                inet = next((i for i, x in enumerate(head) if "未平倉" in x and "口數" in x and "淨額" in x), None)
+                for row in rows[1:]:
+                    if iw is None or inet is None or len(row) <= max(iw, inet) or "外資" not in row[iw]:
+                        continue
+                    try:
+                        out[dt.date.fromisoformat(row[0].strip().replace("/", "-")).isoformat()] = int(float(row[inet].replace(",", "")))
+                    except ValueError:
+                        pass
+                break
+            except Exception:
+                time.sleep(3)
+        d = e + dt.timedelta(days=1)
+        time.sleep(1)
+    return out
+
+
+SRC = []  # 這次外資期貨資料來源（給執行紀錄看）
+
+
 def pcr(start):
     """期交所選擇權買賣權比 → {日期: 未平倉 P/C 比}；抓不到的月份略過"""
     out = {}
@@ -115,6 +154,10 @@ def line(data=None):
     start = dt.date.today() - dt.timedelta(days=420)
     rows = fetch_finmind.get("TaiwanFuturesInstitutionalInvestors", "TX", start.isoformat(), wait=False)
     fnet = foreign_net(rows or [])
+    SRC[:] = ["FinMind"]
+    if len(fnet) < LOOK + 6:  # FinMind 抓不到或不夠（每小時上限）：直接抓期交所
+        fnet = taifex_fut(start)
+        SRC[:] = ["期交所"]
     try:
         pc = pcr(start)
     except Exception:
@@ -131,3 +174,4 @@ def line(data=None):
 
 if __name__ == "__main__":
     print(line() or "抓不到資料")
+    print("外資期貨資料來源：", SRC)

@@ -23,6 +23,6 @@ jobs:
       - run: pip install -q requests
       - run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
       - name: 今晚的期貨籌碼燈號（每晚報告同一段）
-        run: python -c "import json,futopt;print(futopt.line(json.load(open('data.json',encoding='utf-8'))) or '抓不到資料')"
+        run: python -c "import json,futopt;print(futopt.line(json.load(open('data.json',encoding='utf-8'))) or '抓不到資料');print('來源',futopt.SRC);t=futopt.taifex_fut(__import__('datetime').date.today()-__import__('datetime').timedelta(days=40));print('期交所直接抓：',len(t),'天',sorted(t.items())[-3:])"
       - if: ${{ inputs.full != 'no' }}
         run: python research/futopt_bt.py
