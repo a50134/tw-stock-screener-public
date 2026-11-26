@@ -351,6 +351,14 @@ def main():
             drtext = crash.deep_rebound(ld("data.json"), reg)  # 大跌時的跌深反彈（站回 5 日線才買；2026-11-21 使用者同意）
             if drtext:
                 add(["report_discord.txt", "report_line.txt"], drtext)
+            try:  # 斷頭後法人接手、反彈日先站回前高（2026-11-26 使用者同意；市場資訊，可發 LINE）
+                hotext = crash.handoff(ld("data.json"))
+                if hotext:
+                    add(["report_discord.txt", "report_line.txt"], hotext)
+                    log("斷頭後法人接手名單已加入報告")
+            except Exception as e:
+                hotext = ""
+                log("斷頭後法人接手名單失敗，略過：", e)
                 log("跌深反彈已加入報告")
         except Exception as e:
             log("大跌撿好股／跌深抄底失敗，略過：", e)
@@ -472,6 +480,9 @@ def main():
             fox = [x.strip() for x in (locals().get("fotext") or "").split("\n") if x.strip()]
             if fox:  # 期貨籌碼燈號：標題＋急跌時的提醒（👉／⏳）
                 notes = [fox[0].split("｜")[0] + "｜" + fox[1].lstrip("・")] + [x.lstrip("・") for x in fox[2:]] + notes
+            hox = [x.strip() for x in (locals().get("hotext") or "").split("\n") if x.strip()]
+            if hox:  # 斷頭後法人接手、反彈日先站回前高：標題＋前 3 檔
+                notes = [x for x in hox if x.startswith(("🔄", "🚀"))] + [x for x in hox if x.startswith("・🟢")][:3] + notes
             ftx = locals().get("ftext") or ""
             if ftx:  # 台幣：有訊號放最前面，沒訊號放後面
                 notes = ([ftx] + notes) if "訊號 " in ftx and "出現" in ftx else (notes + [ftx.split("（過去")[0]])

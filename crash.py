@@ -619,6 +619,59 @@ def deep_rebound(data, reg=None, top=150, look=10):
     return "\n".join(L)
 
 
+def handoff(data, min_vol=500, top=8):
+    """大盤跌深時的兩份名單（2026-11-26 使用者同意；出處：理財達人秀 11/23 林漢偉、陳威良）
+    ① 斷頭後法人接手：0050 離 60 日高點 −10% 以上時，融資 3 天減 10% 以上＋外資投信 3 天合計買超
+       回測（research/tv_20261126_bt.py C，data.json 2025-04～2026-11）：20 天 547 次上漲 64%、平均 +9.1%（同期全部 57%、+4.7%）
+    ② 反彈日先站回前一天高點：0050 前 5 天跌 5% 以上、今天漲 1.5% 以上時，收盤 > 前一天最高＋投信今天買超＋融資比 5 天前少
+       回測（同上 D）：20 天 156 次上漲 56%、平均 +4.3%；沒站回的 42%、−1.8%
+    只列均量 500 張以上；買法照回測：隔天開盤買、抱 20 天、跌 8% 停損（只有約 1.5 年資料，先小量）"""
+    D, S = data["dates"], data["stocks"]
+    t = len(D) - 1
+    m = next((x for x in S if x["id"] == "0050"), None)
+    if not m or t < 60 or not all(m["c"][t - 59:t + 1]):
+        return ""
+    mc = m["c"]
+    dd = mc[t] / max(mc[t - 59:t + 1]) - 1
+    rebound = all(mc[t - 6:t + 1]) and mc[t - 1] / mc[t - 6] - 1 <= -0.05 and mc[t] / mc[t - 1] - 1 >= 0.015 \
+        and not any(abs(mc[k] / mc[k - 1] - 1) > 0.11 for k in range(t - 5, t + 1))
+    if dd > -0.10 and not rebound:
+        return ""
+    A, B = [], []
+    for x in S:
+        if x["id"].startswith("00"):
+            continue
+        c, h, v = x["c"], x["h"], x["v"]
+        mg, fi, it = x.get("mg") or [], x.get("fi") or [], x.get("it") or []
+        if not c[t] or len(mg) <= t or len(fi) <= t or not all(v[t - 20:t]) or sum(v[t - 20:t]) / 20 < min_vol:
+            continue
+        av = sum(v[t - 20:t]) / 20
+        if dd <= -0.10 and mg[t] and mg[t - 3] and mg[t] / mg[t - 3] - 1 <= -0.10:
+            inst = sum((fi[k] or 0) + ((it[k] if len(it) > k else 0) or 0) for k in (t - 2, t - 1, t))
+            if inst > 0:
+                A.append((inst / av, x, mg[t] / mg[t - 3] - 1, inst))
+        if rebound and h[t - 1] and c[t] > h[t - 1] and len(it) > t and (it[t] or 0) > 0 and mg[t] and mg[t - 5] and mg[t] < mg[t - 5]:
+            B.append((c[t] / c[t - 1] - 1, x))
+    if not (A or B):
+        return ""
+    nd = next_day(D[t])
+    L = []
+    if A:
+        L.append("🔄 斷頭後法人接手（大盤離高點 %+.0f%%；融資 3 天減 10%% 以上＋外資投信在買）：%d 檔。回測之後 20 天上漲 64%%、平均 +9%%（同期全部股票 57%%、+4.7%%）" % (dd * 100, len(A)))
+        for _, x, mr, inst in sorted(A, key=lambda z: -z[0])[:top]:
+            c = x["c"]
+            L.append("・🟢 %s %s 收 %s（融資 3 天 %+.0f%%、外資＋投信 3 天買 %s 張）➜ %s 開盤買，開高 3%% 以上不追，停損 %s（−8%%），抱 20 天" % (
+                x["id"], x["name"], exits.px(c[t]), mr * 100, "{:,}".format(int(inst)), nd, tick(c[t] * 0.92)))
+    if B:
+        L.append("🚀 反彈日先站回前一天高點（＋投信買、融資減）：%d 檔。回測之後 20 天上漲 56%%、平均 +4.3%%；沒站回的只有 42%%" % len(B))
+        for r, x in sorted(B, key=lambda z: -z[0])[:top]:
+            c = x["c"]
+            L.append("・🟢 %s %s 收 %s（今天 %+.1f%%，前一天高點 %s）➜ %s 開盤買，開高 3%% 以上不追，停損 %s（−8%%），抱 20 天" % (
+                x["id"], x["name"], exits.px(c[t]), r * 100, exits.px(x["h"][t - 1]), nd, tick(c[t] * 0.92)))
+    L.append("・只有約 1.5 年資料驗證，先小量（大盤急跌觀望期間，每檔最多平常的一半）；10 年歷史補完後會再驗證")
+    return "\n".join(L)
+
+
 def intraday_levels(data, reg=None):
     """給盤中提醒用的 0050 價位（每晚算好存進 sop_plan.json 的 levels，2026-11-13 使用者要的）：
     年線（正2 出場線）、正2 能不能買、國安基金進場後的回跌買點和第二隻腳低點"""
