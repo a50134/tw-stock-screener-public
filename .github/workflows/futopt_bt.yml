@@ -1,6 +1,10 @@
 name: 期貨選擇權大戶動向回測（外資台指期、散戶多空比、P/C 比）
 on:
   workflow_dispatch:
+    inputs:
+      full:
+        description: '也跑完整回測（no＝只看今晚燈號）'
+        default: 'yes'
 permissions:
   contents: read
 jobs:
@@ -17,4 +21,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -q requests
-      - run: python research/futopt_bt.py
+      - run: git fetch -q --depth 1 origin site-data && git show FETCH_HEAD:data.json > data.json
+      - name: 今晚的期貨籌碼燈號（每晚報告同一段）
+        run: python -c "import json,futopt;print(futopt.line(json.load(open('data.json',encoding='utf-8'))) or '抓不到資料')"
+      - if: ${{ inputs.full != 'no' }}
+        run: python research/futopt_bt.py
