@@ -1,0 +1,39 @@
+name: 全市場 10 年歷史（回測用，上市＋上櫃含已下市）
+# 2026-11-26 使用者同意：補齊 2014 年起全部上市櫃股票的日K與法人買賣超，存到 hist-data 分支
+# 每 6 小時跑一次、每次最多約 5.5 小時，第一次全部補完約要 3～4 次；之後每次只補新的日子（幾分鐘）
+on:
+  schedule:
+    - cron: '23 1,7,13,19 * * *'
+  workflow_dispatch:
+    inputs:
+      start:
+        description: '從哪一年開始'
+        default: '2014'
+concurrency: hist-data
+permissions:
+  contents: write
+jobs:
+  hist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 取出已補的資料
+        run: |
+          git fetch -q --depth 1 origin hist-data && git worktree add -q /tmp/h FETCH_HEAD || { mkdir -p /tmp/h; cd /tmp/h; git init -q; git checkout -q -b hist-data; }
+      - run: python hist.py /tmp/h/hist "${{ inputs.start || '2014' }}" 320
+      - name: 存回 hist-data 分支（只留一個版本，避免越存越大）
+        working-directory: /tmp/h
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git checkout -q --orphan fresh && git commit -q -m "全市場歷史 $(date +%F)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:hist-data
