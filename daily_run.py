@@ -21,6 +21,8 @@ import sys
 import time
 import urllib.request
 
+# 2026-11-27 使用者要求「資料沒收齊不下結論」：只用 1.5 年（或 2018 年起）資料驗證的規則先暫停，等 10 年歷史（hist-data）驗證完再決定
+PAUSED = {"guard_drop", "handoff", "futopt"}
 DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(DIR, "logs")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -222,7 +224,7 @@ def main():
                 dj = json.load(open(os.path.join(DIR, "data.json"), encoding="utf-8"))
                 n = analysis.guard_breakout(P, weak, dj)  # 只因跌破季線偏弱時，權值股（市值前 50）照常推薦
                 nc = analysis.guard_cycle(P, dj)  # 循環股在平均高點附近
-                nd, r5 = analysis.guard_drop(P, dj)  # 大盤急跌中（0050 5 天跌 3% 以上）：全部等止穩
+                nd, r5 = (0, analysis.drop5(dj)) if "guard_drop" in PAUSED else analysis.guard_drop(P, dj)  # 大盤急跌中（0050 5 天跌 3% 以上）：全部等止穩（暫停中）
                 if n or nc or nd:
                     json.dump(P, open(pp, "w", encoding="utf-8"), ensure_ascii=False)
                 log("大盤：%s；追強勢（量價突破／穩健動能）改先觀望 %d 檔（權值股照常）；循環股在高檔改先觀望 %d 檔；0050 5 天 %s，急跌改先觀望 %d 檔" % (
@@ -318,7 +320,7 @@ def main():
                 log("月結算提醒失敗，略過：", e)
             try:  # 期貨籌碼燈號（外資台指期 5 天加減碼、選擇權 P/C 比；大盤資訊，可發 LINE；2026-11-26 使用者同意）
                 import futopt
-                fotext = futopt.line(ld("data.json"))
+                fotext = "" if "futopt" in PAUSED else futopt.line(ld("data.json"))
                 if fotext:
                     add(["report_discord.txt", "report_line.txt"], fotext)
                     log("期貨籌碼燈號：", fotext.split("\n")[0][:60])
@@ -352,7 +354,7 @@ def main():
             if drtext:
                 add(["report_discord.txt", "report_line.txt"], drtext)
             try:  # 斷頭後法人接手、反彈日先站回前高（2026-11-26 使用者同意；市場資訊，可發 LINE）
-                hotext = crash.handoff(ld("data.json"))
+                hotext = "" if "handoff" in PAUSED else crash.handoff(ld("data.json"))
                 if hotext:
                     add(["report_discord.txt", "report_line.txt"], hotext)
                     log("斷頭後法人接手名單已加入報告")
