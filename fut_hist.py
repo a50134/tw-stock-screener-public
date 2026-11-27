@@ -5,6 +5,7 @@ fut_hist.py - 期交所期貨／選擇權籌碼長期歷史（2026-11-27 使用�
   小台指 MTX：三大法人合計淨未平倉、全市場未沖銷契約數（期貨每日交易行情，一般盤、不含價差單）
     → 散戶多空比 = −三大法人淨未平倉 ÷ 全市場未平倉
   選擇權：未平倉賣權／買權比（pcRatio）
+注意：期交所「三大法人」下載只給最近約 3 年；更早的外資台指期、小台法人用 FinMind 補（2018 年起），2018 年前沒有公開來源
 存法：輸出資料夾/fut.json：{"days": {日期: {"tx_f", "mtx_inst", "mtx_oi", "pcr"}}, "done": [已補完的月份]}
 每個月一段（期交所下載的日期區間限制），當月每次都重抓；最多跑 MAX 分鐘就存檔，下次接著補
 用法：python fut_hist.py 輸出資料夾 [從哪一年=2007] [最多幾分鐘=30]
@@ -103,6 +104,34 @@ def pcr(a, b):
     return out, head
 
 
+def finmind_fill(F):
+    """期交所三大法人下載只給最近約 3 年：更早的外資台指期、小台法人用 FinMind（2018 年起）補（只補缺的日子）"""
+    tok = (os.environ.get("FINMIND_TOKEN") or "").strip()
+    if not tok:
+        print("沒有 FINMIND_TOKEN，略過 FinMind 補舊資料", flush=True)
+        return
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fetch_finmind
+    fetch_finmind.TOKEN = tok
+    for sid, key, who in (("TX", "tx_f", ("外資",)), ("MTX", "mtx_inst", ("外資", "投信", "自營"))):
+        miss = [d for d, x in F["days"].items() if key not in x and d >= "2018-01-01"]
+        if not miss:
+            continue
+        rows = fetch_finmind.get("TaiwanFuturesInstitutionalInvestors", sid, "2018-01-01", wait=False) or []
+        net = {}
+        for r in rows:
+            n = r.get("institutional_investors") or ""
+            lo, sh = r.get("long_open_interest_balance_volume"), r.get("short_open_interest_balance_volume")
+            if any(w in n for w in who) and lo is not None and sh is not None and r.get("date"):
+                net[r["date"]] = net.get(r["date"], 0) + lo - sh
+        n = 0
+        for d in miss:
+            if d in net:
+                F["days"][d][key] = net[d]
+                n += 1
+        print("FinMind 補 %s：%d 天（FinMind 共 %d 天）" % (key, n, len(net)), flush=True)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     p = os.path.join(OUT, "fut.json")
@@ -156,6 +185,10 @@ def main():
             json.dump(F, open(p, "w", encoding="utf-8"), separators=(",", ":"))
             print("期貨歷史進度：%s，%d 天" % (key, len(F["days"])), flush=True)
     F["done"] = sorted(done)
+    try:
+        finmind_fill(F)
+    except Exception as e:
+        print("FinMind 補舊資料失敗：", type(e).__name__, str(e)[:100], flush=True)
     json.dump(F, open(p, "w", encoding="utf-8"), separators=(",", ":"))
     D = sorted(F["days"])
     full = lambda k: sum(1 for d in D if k in F["days"][d])  # noqa: E731
