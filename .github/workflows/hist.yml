@@ -27,7 +27,9 @@ jobs:
       - name: 取出已補的資料
         run: |
           git fetch -q --depth 1 origin hist-data && git worktree add -q /tmp/h FETCH_HEAD || { mkdir -p /tmp/h; cd /tmp/h; git init -q; git checkout -q -b hist-data; }
-      - run: python hist.py /tmp/h/hist "${{ inputs.start || '2014' }}" 320
+      - name: 期交所期貨／選擇權籌碼歷史（2007 年起；散戶多空比、外資台指期、P/C 比）
+        run: python fut_hist.py /tmp/h/hist 2007 30 || echo "期貨歷史失敗，下次再補"
+      - run: python hist.py /tmp/h/hist "${{ inputs.start || '2014' }}" 290
       - name: 存回 hist-data 分支（只留一個版本，避免越存越大）
         working-directory: /tmp/h
         run: |
