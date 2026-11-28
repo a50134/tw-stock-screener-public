@@ -32,7 +32,9 @@ jobs:
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
         run: python fut_hist.py /tmp/h/hist 2007 30 || echo "期貨歷史失敗，下次再補"
-      - run: python hist.py /tmp/h/hist "${{ inputs.start || '2014' }}" 290
+      - name: 月營收歷史（公開資訊觀測站，2014 年起，含已下市）
+        run: python rev_hist.py /tmp/h/hist 2014 40 || echo "月營收失敗，下次再補"
+      - run: python hist.py /tmp/h/hist "${{ inputs.start || '2014' }}" 250
       - name: 存回 hist-data 分支（只留一個版本，避免越存越大）
         working-directory: /tmp/h
         run: |
