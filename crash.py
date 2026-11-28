@@ -635,7 +635,7 @@ def handoff(data, min_vol=500, top=8):
     dd = mc[t] / max(mc[t - 59:t + 1]) - 1
     rebound = all(mc[t - 6:t + 1]) and mc[t - 1] / mc[t - 6] - 1 <= -0.05 and mc[t] / mc[t - 1] - 1 >= 0.015 \
         and not any(abs(mc[k] / mc[k - 1] - 1) > 0.11 for k in range(t - 5, t + 1))
-    if dd > -0.10 and not rebound:
+    if dd > -0.10:
         return ""
     A, B = [], []
     for x in S:
@@ -650,14 +650,15 @@ def handoff(data, min_vol=500, top=8):
             inst = sum((fi[k] or 0) + ((it[k] if len(it) > k else 0) or 0) for k in (t - 2, t - 1, t))
             if inst > 0:
                 A.append((inst / av, x, mg[t] / mg[t - 3] - 1, inst))
-        if rebound and h[t - 1] and c[t] > h[t - 1] and len(it) > t and (it[t] or 0) > 0 and mg[t] and mg[t - 5] and mg[t] < mg[t - 5]:
+        # ② 反彈日站回前一天高點：10 年回測沒有比同一天全部股票好（−1.4%），2026-11-28 拿掉
+        if False and rebound and h[t - 1] and c[t] > h[t - 1] and len(it) > t and (it[t] or 0) > 0 and mg[t] and mg[t - 5] and mg[t] < mg[t - 5]:
             B.append((c[t] / c[t - 1] - 1, x))
     if not (A or B):
         return ""
     nd = next_day(D[t])
     L = []
     if A:
-        L.append("🔄 斷頭後法人接手（大盤離高點 %+.0f%%；融資 3 天減 10%% 以上＋外資投信在買）：%d 檔。回測之後 20 天上漲 64%%、平均 +9%%（同期全部股票 57%%、+4.7%%）" % (dd * 100, len(A)))
+        L.append("🔄 斷頭後法人接手（大盤離高點 %+.0f%%；融資 3 天減 10%% 以上＋外資投信在買）：%d 檔。回測（2014～2026 全市場、含已下市，5,282 次）之後 20 天上漲 62%%、平均 +6.1%%（大盤跌深時隨便買 54%%、+2.6%%；主要是融資大減那幾天常是低點）" % (dd * 100, len(A)))
         for _, x, mr, inst in sorted(A, key=lambda z: -z[0])[:top]:
             c = x["c"]
             L.append("・🟢 %s %s 收 %s（融資 3 天 %+.0f%%、外資＋投信 3 天買 %s 張）➜ %s 開盤買，開高 3%% 以上不追，停損 %s（−8%%），抱 20 天" % (
@@ -668,7 +669,7 @@ def handoff(data, min_vol=500, top=8):
             c = x["c"]
             L.append("・🟢 %s %s 收 %s（今天 %+.1f%%，前一天高點 %s）➜ %s 開盤買，開高 3%% 以上不追，停損 %s（−8%%），抱 20 天" % (
                 x["id"], x["name"], exits.px(c[t]), r * 100, exits.px(x["h"][t - 1]), nd, tick(c[t] * 0.92)))
-    L.append("・只有約 1.5 年資料驗證，先小量（大盤急跌觀望期間，每檔最多平常的一半）；10 年歷史補完後會再驗證")
+    L.append("・10 年回測：好處主要來自「融資大減的那幾天進場」，法人有沒有買差不多；先小量分批")
     return "\n".join(L)
 
 

@@ -22,7 +22,7 @@ import time
 import urllib.request
 
 # 2026-11-27 使用者要求「資料沒收齊不下結論」：只用 1.5 年（或 2018 年起）資料驗證的規則先暫停，等 10 年歷史（hist-data）驗證完再決定
-PAUSED = {"guard_drop", "handoff", "futopt"}
+PAUSED = {"guard_drop"}  # 2026-11-28 10 年資料回測：futopt、handoff①通過恢復；guard_drop 沒有比較好，維持暫停（research/full_bt.py）
 DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(DIR, "logs")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
