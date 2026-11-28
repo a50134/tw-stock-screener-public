@@ -1,114 +1,122 @@
 """
 rev_hist.py - 全市場月營收歷史（2026-11-28 使用者要的：「補月營收資料」，給「年底營收進度」等策略回測用）
-資料：公開資訊觀測站「每月營業收入彙總表」（上市 sii、上櫃 otc；國內公司 _0、外國公司（KY）_1）
-     每個月一頁就有當時全部公司 → 包含之後下市的公司，沒有倖存者偏差
-存法：輸出資料夾/rev.json.gz：{"YYYY-MM": {代號: [當月營收, 今年累計營收]}}（千元）；rev_meta.json：{"fail": {頁面: 次數}}
-已抓過的月份不重抓（最近 2 個月每次重抓，因為公司會更正）；最多跑 MAX 分鐘
-用法：python rev_hist.py 輸出資料夾 [從哪一年=2014] [最多幾分鐘=40]
+資料：FinMind TaiwanStockMonthRevenue（一檔一次，2014 年起）。代號清單用 hist/meta.json（2014 年起出現過的全部上市櫃股票，含已下市）
+     公開資訊觀測站彙總表從 GitHub 連不上（拒絕連線／舊網址 404），2026-11-28 改用 FinMind
+存法：輸出資料夾/rev.json.gz：{"YYYY-MM": {代號: 當月營收（元）}}；rev_meta.json：{"done": {代號: 抓的月份}, "empty": [FinMind 沒資料的代號]}
+FinMind 每小時有請求上限：碰到就等 10 分鐘（時間夠的話），最多跑 MAX 分鐘，下次接著補
+補完之後：每個月 11 日後，還在交易的公司重抓一次（拿到上個月營收）
+用法：FINMIND_TOKEN=… python rev_hist.py 輸出資料夾 [從哪一年=2014] [最多幾分鐘=150]
 """
 import datetime as dt
 import gzip
-import html
 import json
 import os
-import re
 import sys
 import time
-import urllib.request
+
+import requests
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "hist"
 START = int(sys.argv[2]) if len(sys.argv) > 2 else 2014
-MAX = float(sys.argv[3]) if len(sys.argv) > 3 else 40
-UA = {"User-Agent": "Mozilla/5.0"}
+MAX = float(sys.argv[3]) if len(sys.argv) > 3 else 150
+API = "https://api.finmindtrade.com/api/v4/data"
+TOKEN = (os.environ.get("FINMIND_TOKEN") or "").strip()
 
 
-def fetch(url):
+def get(sid, t0):
+    """→ (資料列, 狀態)；狀態：ok／limit／fail"""
+    params = {"dataset": "TaiwanStockMonthRevenue", "data_id": sid, "start_date": "%d-01-01" % START}
+    if TOKEN:
+        params["token"] = TOKEN
     for k in range(3):
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
-                b = r.read()
-            for enc in ("utf-8", "big5", "cp950"):
-                try:
-                    return b.decode(enc)
-                except UnicodeDecodeError:
-                    pass
-            return b.decode("big5", "replace")
-        except Exception as e:
-            if k == 2:
-                print(url, "抓取失敗：", str(e)[:100], flush=True)
-            time.sleep(5 * (k + 1))
-    return None
+            r = requests.get(API, params=params, timeout=40)
+            j = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            if r.status_code == 200 and j.get("status") == 200:
+                return j.get("data") or [], "ok"
+            msg = str(j.get("msg", r.status_code))
+            if r.status_code == 402 or "limit" in msg.lower():
+                return [], "limit"
+        except requests.RequestException:
+            pass
+        time.sleep(3 * (k + 1))
+    return [], "fail"
 
 
-def num(s):
-    s = s.replace(",", "").strip()
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def parse(text):
-    """→ {代號: [當月營收, 今年累計]}；欄位：代號 名稱 當月 上月 去年當月 上月% 去年% 當月累計 去年累計 前期% 備註"""
-    out = {}
-    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S | re.I):
-        tds = [html.unescape(re.sub(r"<[^>]+>", "", x)).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S | re.I)]
-        if len(tds) >= 8 and re.fullmatch(r"\d{4}[A-Z]?", tds[0]):
-            rev, cum = num(tds[2]), num(tds[7])
-            if rev is not None:
-                out[tds[0]] = [rev, cum]
-    return out
+def save(R, meta, p, mp):
+    with gzip.open(p + ".tmp", "wt", encoding="utf-8") as f:
+        json.dump(R, f, separators=(",", ":"))
+    os.replace(p + ".tmp", p)
+    json.dump(meta, open(mp, "w", encoding="utf-8"), separators=(",", ":"))
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
     p, mp = os.path.join(OUT, "rev.json.gz"), os.path.join(OUT, "rev_meta.json")
-    R = json.load(gzip.open(p, "rt", encoding="utf-8")) if os.path.exists(p) else {}
-    meta = json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else {"fail": {}, "pages": {}}
-    meta.setdefault("pages", {})
+    R = {}
+    if os.path.exists(p):
+        with gzip.open(p, "rt", encoding="utf-8") as f:
+            R = json.load(f)
+    meta = json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else {}
+    if "done" not in meta:  # 舊版（公開資訊觀測站）的紀錄不要了
+        meta = {"done": {}, "empty": []}
+    names = json.load(open(os.path.join(OUT, "meta.json"), encoding="utf-8"))["names"]
     today = dt.date.today()
-    last = (today.replace(day=1) - dt.timedelta(days=1)).replace(day=1)  # 上個月（每月 10 日前公布）
-    months, m = [], last
-    while m.year >= START:
-        months.append(m)
-        m = (m - dt.timedelta(days=1)).replace(day=1)
-    recent = {months[0].strftime("%Y-%m"), months[1].strftime("%Y-%m")} if len(months) > 1 else set()
-    t0, n, first = time.time(), 0, True
-    for m in months:
-        ym = m.strftime("%Y-%m")
-        for mk in ("sii", "otc"):
-            for kind in ("0", "1"):
-                page = "%s_%s_%s" % (ym, mk, kind)
-                if (meta["pages"].get(page) and ym not in recent) or meta["fail"].get(page, 0) >= 3:
-                    continue
-                if (time.time() - t0) / 60 > MAX:
-                    break
-                url = "https://mops.twse.com.tw/nas/t21/%s/t21sc03_%d_%d_%s.html" % (mk, m.year - 1911, m.month, kind)
-                text = fetch(url)
-                rows = parse(text) if text else {}
-                if first:
-                    print("第一頁：", url, "長度", len(text or ""), "抓到", len(rows), "家", (text or "")[:120].replace("\n", " "), flush=True)
-                    first = False
-                if rows:
-                    R.setdefault(ym, {}).update(rows)
-                    meta["pages"][page] = len(rows)
-                    meta["fail"].pop(page, None)
-                elif kind == "1" and text and "查無" in text:
-                    meta["pages"][page] = 0  # 那個月沒有外國公司的表
-                else:
-                    meta["fail"][page] = meta["fail"].get(page, 0) + 1
-                n += 1
-                time.sleep(2)
-        if n and n % 24 == 0:
-            json.dump(R, gzip.open(p, "wt", encoding="utf-8"), separators=(",", ":"))
-            json.dump(meta, open(mp, "w", encoding="utf-8"))
-            print("月營收進度：%s，%.0f 分鐘" % (ym, (time.time() - t0) / 60), flush=True)
-    with gzip.open(p, "wt", encoding="utf-8") as f:
-        json.dump(R, f, separators=(",", ":"))
-    json.dump(meta, open(mp, "w", encoding="utf-8"))
+    cur = today.strftime("%Y-%m")
+    recent = (today - dt.timedelta(days=15)).isoformat()
+    codes = sorted(c for c in names if not c.startswith("0") and len(c) == 4)  # 一般股票（排除 ETF、權證）
+    empty = set(meta["empty"])
+    todo = [c for c in codes if c not in meta["done"] and c not in empty]
+    if not todo and today.day >= 11:  # 補完了：每月 11 日後，還在交易的公司重抓一次
+        todo = [c for c in codes if c not in empty and names[c][3] >= recent and meta["done"].get(c, "") < cur]
+    print("月營收：已抓 %d 檔、FinMind 沒資料 %d 檔，這次要抓 %d 檔（代號共 %d 檔，含已下市）%s" % (
+        len(meta["done"]), len(empty), len(todo), len(codes), "" if TOKEN else "；沒有 FINMIND_TOKEN"), flush=True)
+    t0, n, fails = time.time(), 0, 0
+    for c in todo:
+        left = MAX - (time.time() - t0) / 60
+        if left < 1:
+            print("月營收：時間到，先存檔", flush=True)
+            break
+        rows, st = get(c, t0)
+        if st == "limit":
+            save(R, meta, p, mp)
+            if left < 13:
+                print("月營收：碰到 FinMind 每小時上限，時間不夠等，先停", flush=True)
+                break
+            print("月營收：碰到 FinMind 每小時上限，等 10 分鐘（本次已抓 %d 檔）" % n, flush=True)
+            time.sleep(600)
+            rows, st = get(c, t0)
+            if st != "ok":
+                print("月營收：還是不行，先停", flush=True)
+                break
+        if st == "fail":
+            fails += 1
+            if fails >= 10:
+                print("月營收：連續失敗太多次，先停", flush=True)
+                break
+            continue
+        fails = 0
+        got = 0
+        for r in rows:
+            y, m, v = r.get("revenue_year"), r.get("revenue_month"), r.get("revenue")
+            if y and m and v is not None:
+                R.setdefault("%04d-%02d" % (int(y), int(m)), {})[c] = v
+                got += 1
+        if got:
+            meta["done"][c] = cur
+        else:
+            empty.add(c)
+            meta["empty"] = sorted(empty)
+        n += 1
+        if n % 50 == 0:
+            save(R, meta, p, mp)
+            print("月營收進度：本次 %d 檔，%.0f 分鐘" % (n, (time.time() - t0) / 60), flush=True)
+    meta["empty"] = sorted(empty)
+    save(R, meta, p, mp)
     ks = sorted(R)
-    print("月營收：本次抓 %d 頁；共 %d 個月（%s～%s）、%d 家；失敗 %d 頁" % (
-        n, len(ks), ks[0] if ks else "—", ks[-1] if ks else "—", len({c for v in R.values() for c in v}), len(meta["fail"])), flush=True)
+    dl = sum(1 for c in meta["done"] if names.get(c, [0, 0, 0, "9999"])[3] < recent)
+    print("月營收：本次抓 %d 檔；共 %d 檔有資料（其中已下市 %d 檔）、%d 個月（%s～%s）；FinMind 沒資料 %d 檔" % (
+        n, len(meta["done"]), dl, len(ks), ks[0] if ks else "—", ks[-1] if ks else "—", len(empty)), flush=True)
 
 
 if __name__ == "__main__":
