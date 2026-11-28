@@ -1410,6 +1410,12 @@ const vamRank=(t,f)=>{const key=(DATA&&DATA.asOf)+'|'+(DATA&&DATA.stocks.length)
   let n=0,m=0,q=0;for(let i=t-119;i<=t;i++){if(!(c[i-1]>0))continue;const r=c[i]/c[i-1]-1;n++;m+=r;q+=r*r}if(n<60)continue;m/=n;const sd=Math.sqrt(Math.max(q/n-m*m,0));if(!(sd>0))continue;
   L.push([s.id,(c[t-5]/c[t-125]-1)/sd])}
  L.sort((a,b)=>b[1]-a[1]);const M=new Map();L.forEach((x,i)=>M.set(x[0],i+1));VAMC={[key]:M};return M};
+/* 帳上賺錢（CGO，2026-11-28 使用者同意）：收盤 ÷ 近 n 天成交量加權平均成本 − 1。10 年全市場回測（research/full_bt.py）：CGO≥20%＋離 60 日高點 5% 內、CGO 前 10 名，抱 20 天 48%、平均 +2.6%（同日全部 +0.5%），12 年裡 11 年較好 */
+const cgoOf=(s,t,n)=>{if(t<n-1||!(s.c[t]>0))return NaN;let a=0,b=0;for(let i=t-n+1;i<=t;i++){if(!(s.c[i]>0)||!(s.v[i]>0))continue;a+=s.c[i]*s.v[i];b+=s.v[i]}return b?(s.c[t]/(a/b)-1)*100:NaN};
+let CGOC={};
+const cgoRank=(t,n)=>{const key=(DATA&&DATA.asOf)+'|'+(DATA&&DATA.stocks.length)+'|'+t+'|'+n;if(CGOC[key])return CGOC[key];const L=[];
+ for(const s of DATA.stocks){if(/^(00|01|02|91)/.test(s.id)||t<59||s.c.length<=t)continue;if(sum(s.v,t-20,t-1)/20<500)continue;let mx=0;for(let i=t-59;i<=t;i++)mx=Math.max(mx,s.c[i]||0);if(!(s.c[t]>=mx*0.95))continue;const x=cgoOf(s,t,n);if(isFinite(x)&&x>=20)L.push([s.id,x])}
+ L.sort((a,b)=>b[1]-a[1]);const M=new Map();L.forEach((x,i)=>M.set(x[0],i+1));CGOC={[key]:M};return M};
 
 /* ================= 條件庫 ================= */
 const CONDS={
@@ -1457,6 +1463,9 @@ const CONDS={
  volSurge:{g:'技術',name:'爆量',tpl:'成交量 > {n} 日均量的 {x} 倍',p:{n:20,x:1.8},col:'量比',ev(s,t,p){if(t<p.n)return NA;const a=sum(s.v,t-p.n,t-1)/p.n,x=s.v[t]/a;return{ok:x>p.x,v:x,t:x.toFixed(2)+'倍'}}},
  priceChg:{g:'技術',name:'區間漲幅',tpl:'近 {n} 日漲幅 > {x}%',p:{n:20,x:5},col:p=>`${p.n}日漲幅`,ev(s,t,p){if(t<p.n)return NA;const x=(s.c[t]/s.c[t-p.n]-1)*100;return{ok:x>p.x,v:x,t:pct(x)}}},
  newHigh:{g:'技術',name:'股價創新高',tpl:'收盤價創 {n} 日新高',p:{n:60},col:p=>`${p.n}日高`,ev(s,t,p){if(t<p.n-1)return NA;let mx=0;for(let i=t-p.n+1;i<t;i++)mx=Math.max(mx,s.c[i]);const x=(s.c[t]/mx-1)*100;return{ok:s.c[t]>=mx,v:x,t:s.c[t]>=mx?'創高':pct(x)}}},
+ nearHigh:{g:'技術',name:'接近波段高點',tpl:'收盤價在近 {n} 日最高收盤 {x}% 以內',p:{n:60,x:5},col:p=>`距${p.n}日高`,ev(s,t,p){if(t<p.n-1)return NA;let mx=0;for(let i=t-p.n+1;i<=t;i++)mx=Math.max(mx,s.c[i]||0);if(!mx)return NA;const x=(s.c[t]/mx-1)*100;return{ok:x>=-p.x,v:x,t:pct(x)}}},
+ cgo:{g:'籌碼',name:'帳上賺錢（未實現獲利）',tpl:'股價比近 {n} 天成交量加權的平均成本高 {x}% 以上（大部分持有人在賺錢）',p:{n:250,x:20},col:'帳上獲利',ev(s,t,p){const x=cgoOf(s,t,p.n);if(!isFinite(x))return NA;return{ok:x>=p.x,v:x,t:pct(x)}}},
+ cgoTop:{g:'籌碼',name:'帳上賺錢排名',tpl:'帳上獲利 20% 以上、離 60 日高點 5% 內、20 日均量 500 張以上的股票中，帳上獲利（近 {d} 天成本）排名前 {n} 名',p:{n:10,d:250},col:'帳上排名',ev(s,t,p){const k=cgoRank(t,p.d).get(s.id);if(!k)return NA;return{ok:k<=p.n,v:-k,t:'第 '+k+' 名'}}},
  kdCross:{g:'技術',name:'KD 黃金交叉',tpl:'近 {k} 日內 KD 黃金交叉，且 K < {x}',p:{k:3,x:50},col:'KD交叉',ev(s,t,p){const{K,D:Dd}=kd(s);for(let j=t;j>t-p.k&&j>0;j--){if(K[j]>Dd[j]&&K[j-1]<=Dd[j-1]&&K[j]<p.x)return{ok:true,v:K[j],t:`K=${K[j].toFixed(0)}`}}return{ok:false,v:K[t],t:`K=${K[t].toFixed(0)}`}}},
  rsi:{g:'技術',name:'RSI 區間',tpl:'RSI({n}) 介於 {a} ~ {b}',p:{n:14,a:50,b:75},col:p=>`RSI${p.n}`,ev(s,t,p){const x=rsi(s,p.n)[t];if(!isFinite(x))return NA;return{ok:x>=p.a&&x<=p.b,v:x,t:x.toFixed(1)}}},
  rsRank:{g:'技術',name:'相對強弱排名',tpl:'近 {n} 日漲幅排名前 {x}%（相對強弱 RS）',p:{n:20,x:20},col:p=>`RS${p.n}`,ev(s,t,p){const r=rsOf(p.n,t)[s.id];if(r==null)return NA;return{ok:r<=p.x,v:-r,t:`前${r.toFixed(0)}%`}}},
@@ -1680,6 +1689,7 @@ if(!S.v24){S.v24=1;if(!S.strategies.some(x=>x.id==='s25'))S.strategies.push({id:
 if(!S.v25){S.v25=1;if(!S.strategies.some(x=>x.id==='s26'))S.strategies.push({id:'s26',name:'法人買超優勢',mode:'all',k:2,conds:[C('fxRatio',{n:20,x:8}),C('instRatio',{party:'it',n:20,x:2}),C('fiLadder'),C('instBoth',{n:60}),C('notFund'),C('listed')]})}
 /* 2026-11：高殖利率價值股（使用者的準則：已公告股息 >1.5 元、現金殖利率 >5.5%、本益比 <15、淨值比 <2、站上季線、季線上揚、只看上市、排除 ETF／ETN／存託憑證／REITs） */
 if(!S.v26){S.v26=1;if(!S.strategies.some(x=>x.id==='s27'))S.strategies.push({id:'s27',name:'高殖利率價值股',mode:'all',k:2,conds:[C('cashDiv',{x:1.5}),C('cashYield',{x:5.5}),C('pe',{x:15}),C('pbAt',{x:2}),C('maAbove',{n:60}),C('maUp',{n:60,k:3}),C('listed'),C('notFund')]})}
+if(!S.v27){S.v27=1;if(!S.strategies.some(x=>x.id==='s28'))S.strategies.push({id:'s28',name:'帳上賺錢股（CGO）',mode:'all',k:2,conds:[C('cgoTop',{n:10,d:250}),C('cgo',{n:250,x:20}),C('nearHigh',{n:60,x:5}),C('avgVol',{n:20,x:500}),C('notFund')]})}
 S.watch=Array.isArray(S.watch)?S.watch:[];S.view='hit';S.sub=Array.isArray(S.sub)&&S.sub.length===2?S.sub:['fi','it'];S.bt=Object.assign({hold:20,tp:15,sl:8,ma:0,sig:0,fee:true},S.bt||{});S.plan=Object.assign({dn:1.5,up:0.3,stopAtr:1,stopPct:8,maxBias:8,lines:true,off:[],tn:3,nnS:10,nnW:8,nnTrend:false,nnMark:true},S.plan||{});S.kmain=S.kmain||'k';S.calc=Object.assign({cash:100000,risk:2,disc:10,odd:true},S.calc||{});S.sop=Object.assign({strat:'s1',min:60,gapMax:2,gapNo:5,gapDown:3,risk:'auto',px:{},pxDate:'',open:true,rules:{liq:{on:true,x:500},cheap:{on:true,x:10},downtrend:{on:true},revBad:{on:true,x:-10},loss:{on:true},sell:{on:true,x:2},news:{on:true},hot:{on:true,x:20}}},S.sop||{});
 const save=()=>store.set(SK,S);
 const strat=()=>S.strategies.find(x=>x.id===S.cur)||S.strategies[0];
