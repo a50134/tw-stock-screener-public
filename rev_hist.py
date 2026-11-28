@@ -83,11 +83,12 @@ def main():
             if left < 13:
                 print("月營收：碰到 FinMind 每小時上限，時間不夠等，先停", flush=True)
                 break
-            print("月營收：碰到 FinMind 每小時上限，等 10 分鐘（本次已抓 %d 檔）" % n, flush=True)
-            time.sleep(600)
-            rows, st = get(c, t0)
-            if st != "ok":
-                print("月營收：還是不行，先停", flush=True)
+            print("月營收：碰到 FinMind 每小時上限，等到恢復（本次已抓 %d 檔）" % n, flush=True)
+            while st == "limit" and MAX - (time.time() - t0) / 60 > 6:  # 每 5 分鐘試一次，時間到為止
+                time.sleep(300)
+                rows, st = get(c, t0)
+            if st == "limit":
+                print("月營收：時間不夠等，先停", flush=True)
                 break
         if st == "fail":
             fails += 1
