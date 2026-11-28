@@ -16,3 +16,4 @@ jobs:
       - run: pip install -q numpy
       - run: git fetch -q --depth 1 origin hist-data && git worktree add -q /tmp/h FETCH_HEAD
       - run: python -W ignore research/full_bt.py /tmp/h/hist
+      - run: python -W ignore research/rev_bt.py /tmp/h/hist
