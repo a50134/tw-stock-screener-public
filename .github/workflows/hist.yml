@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: pip install -q requests  # FinMind 補 2018 年起的期貨法人資料要用
       - name: 取出已補的資料
         run: |
           git fetch -q --depth 1 origin hist-data && git worktree add -q /tmp/h FETCH_HEAD || { mkdir -p /tmp/h; cd /tmp/h; git init -q; git checkout -q -b hist-data; }
